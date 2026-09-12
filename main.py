@@ -72,6 +72,8 @@ from pet import (
     get_or_prompt_pet,
 )
 
+from tdf import handle_tdf
+
 
 # ==========================================
 # Database
@@ -337,6 +339,25 @@ async def on_message(message: Message):
         )
 
         return
+
+
+    # ======================================
+    # 🧠🎯💡 حقیقت / جرأت / فکت (فقط گروه)
+    # ======================================
+
+    if not private_chat:
+
+        tdf_reply = handle_tdf(
+            user_id=user_id,
+            text=text,
+            first_name=first_name,
+            username=username,
+        )
+
+        if tdf_reply:
+
+            await message.reply(tdf_reply)
+            return
 
 
     # ======================================

@@ -151,6 +151,24 @@ def init_database():
         )
     """)
 
+    # ------------------------------------------------------------------
+    # Content history (Truth / Dare / Fact) — per-user seen indices
+    # ------------------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS content_history (
+            user_id INTEGER NOT NULL,
+            content_type TEXT NOT NULL,
+            item_index INTEGER NOT NULL,
+            seen_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, content_type, item_index)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_content_history_user_type
+        ON content_history (user_id, content_type)
+    """)
+
     connection.commit()
 
     # ------------------------------------------------------------------
@@ -1039,3 +1057,72 @@ def delete_pet(user_id):
 
 def pet_exists(user_id):
     return get_pet(user_id) is not None
+
+
+# ==========================================
+# 🧠🎯💡 Content History (Truth / Dare / Fact)
+# ==========================================
+
+def get_seen_content_indices(user_id, content_type):
+    """
+    Return list of item_index values already seen by this user
+    for the given content_type ('truth' | 'dare' | 'fact').
+    """
+    user_id = int(user_id)
+    content_type = str(content_type)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT item_index FROM content_history
+        WHERE user_id = ? AND content_type = ?
+        """,
+        (user_id, content_type),
+    )
+    rows = cursor.fetchall()
+    connection.close()
+    return [int(r["item_index"]) for r in rows]
+
+
+def mark_content_seen(user_id, content_type, item_index):
+    """
+    Record that user has seen this content item.
+    Uses INSERT OR IGNORE so duplicates are harmless.
+    """
+    from datetime import datetime
+
+    user_id = int(user_id)
+    content_type = str(content_type)
+    item_index = int(item_index)
+    now = datetime.now().isoformat()
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO content_history
+            (user_id, content_type, item_index, seen_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (user_id, content_type, item_index, now),
+    )
+    connection.commit()
+    connection.close()
+
+
+def count_seen_content(user_id, content_type):
+    user_id = int(user_id)
+    content_type = str(content_type)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS c FROM content_history
+        WHERE user_id = ? AND content_type = ?
+        """,
+        (user_id, content_type),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return int(row["c"]) if row else 0
+
