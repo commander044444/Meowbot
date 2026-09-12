@@ -24,11 +24,16 @@ from config import (
     PET_XP_PET,
     PET_XP_GIFT,
     PET_XP_PER_LEVEL,
+    PET_XP_GROWTH,
     PET_STAT_MAX,
     PET_STAT_MIN,
     PET_MAX_LEVEL,
     PET_SLEEP_DURATION,
     PET_GIFT_CHANCE_BASE,
+    PET_POINT_COOLDOWN,
+    PET_POINT_BASE,
+    PET_POINT_PER_LEVEL,
+    PET_LEVELUP_COIN_PER_LEVEL,
 )
 
 from database import (
@@ -39,6 +44,9 @@ from database import (
     create_user,
     get_user,
     add_meow_coins,
+    add_meow_points,
+    get_meow_coins,
+    spend_meow_coins,
 )
 
 
@@ -58,6 +66,7 @@ CB_PET_SLEEP = "pet:sleep"
 CB_PET_GIFT = "pet:gift"
 CB_PET_STATUS = "pet:status"
 CB_PET_RENAME = "pet:rename"
+CB_PET_LEVELUP = "pet:levelup"
 CB_PET_BACK_MENU = "menu:main"
 
 
@@ -153,7 +162,25 @@ def clamp(value, min_v=PET_STAT_MIN, max_v=PET_STAT_MAX):
 
 
 def xp_needed_for_level(level):
-    return max(1, int(level) * PET_XP_PER_LEVEL)
+    """
+    XP لازم برای رفتن از این لول به لول بعد.
+    با بالا رفتن لول، رشد سختی بیشتر می‌شود.
+    """
+    level = max(1, int(level))
+    base = level * PET_XP_PER_LEVEL
+    growth = int(base * (level - 1) * PET_XP_GROWTH)
+    return max(1, base + growth)
+
+
+def hourly_points_for_level(level):
+    level = max(1, int(level))
+    return int(PET_POINT_BASE + level * PET_POINT_PER_LEVEL)
+
+
+def levelup_coin_cost(level):
+    """هزینه ارتقا از level فعلی به level+1 با کوین."""
+    level = max(1, int(level))
+    return int(level * PET_LEVELUP_COIN_PER_LEVEL)
 
 
 def apply_xp(pet_dict, amount):
@@ -287,6 +314,10 @@ def pet_home_keyboard():
         row=3,
     )
     markup.add(
+        InlineKeyboardButton(text="⭐ ارتقا با کوین", callback_data=CB_PET_LEVELUP),
+        row=4,
+    )
+    markup.add(
         InlineKeyboardButton(text="✏️ تغییر اسم", callback_data=CB_PET_RENAME),
         row=4,
     )
@@ -338,6 +369,9 @@ def format_pet_home(pet):
     hunger = int(pet["hunger"] or 0)
     energy = int(pet["energy"] or 0)
     level = int(pet["level"] or 1)
+    xp = int(pet["xp"] or 0)
+    needed = xp_needed_for_level(level)
+    hourly = hourly_points_for_level(level)
     sleeping = is_pet_sleeping(pet)
 
     status_line = ""
@@ -350,7 +384,8 @@ def format_pet_home(pet):
         f"❤️ رابطه: {relationship}/{PET_STAT_MAX}\n"
         f"🍖 گرسنگی: {hunger}/{PET_STAT_MAX}\n"
         f"⚡ انرژی: {energy}/{PET_STAT_MAX}\n"
-        f"⭐ Level: {level}"
+        f"⭐ Level: {level}  (XP: {xp}/{needed})\n"
+        f"💰 تولید ساعتی: {hourly} Meow Point"
         f"{status_line}"
     )
 
@@ -367,6 +402,8 @@ def format_pet_status(pet):
     games = int(pet["games_played"] or 0)
     foods = int(pet["foods_given"] or 0)
     gifts = int(pet["gifts_received"] or 0)
+    hourly = hourly_points_for_level(level)
+    cost = levelup_coin_cost(level)
     created = pet["created_at"] or "—"
     # Show only date part if ISO
     if "T" in str(created):
@@ -384,11 +421,43 @@ def format_pet_status(pet):
         f"🍖 Hunger: {hunger}/{PET_STAT_MAX}\n"
         f"⚡ Energy: {energy}/{PET_STAT_MAX}\n"
         f"💤 خواب: {sleeping}\n"
+        f"💰 تولید ساعتی: {hourly} Meow Point\n"
+        f"🪙 هزینه ارتقا بعدی: {cost} Meow Coin\n"
         f"\n"
         f"🎮 تعداد بازی‌ها: {games}\n"
         f"🍖 تعداد غذاها: {foods}\n"
         f"🎁 تعداد هدایا: {gifts}\n"
         f"📅 تاریخ ساخت: {created}"
+    )
+
+
+def format_group_pet_card(pet, owner_label="", point_msg=""):
+    """کارت نمایش پیشی در گروه."""
+    pet = ensure_awake(pet)
+    name = pet["pet_name"] or "پیشی"
+    level = int(pet["level"] or 1)
+    xp = int(pet["xp"] or 0)
+    needed = xp_needed_for_level(level)
+    relationship = int(pet["relationship"] or 0)
+    hunger = int(pet["hunger"] or 0)
+    energy = int(pet["energy"] or 0)
+    hourly = hourly_points_for_level(level)
+    sleeping = is_pet_sleeping(pet)
+
+    owner_line = f"👤 صاحب: {owner_label}\n" if owner_label else ""
+    sleep_line = "💤 در حال خواب...\n" if sleeping else ""
+    extra = f"\n{point_msg}" if point_msg else ""
+
+    return (
+        f"🐱 {name}\n"
+        f"{owner_line}"
+        f"{sleep_line}"
+        f"⭐ Level: {level}  |  XP: {xp}/{needed}\n"
+        f"❤️ رابطه: {relationship}/{PET_STAT_MAX}\n"
+        f"🍖 گرسنگی: {hunger}/{PET_STAT_MAX}\n"
+        f"⚡ انرژی: {energy}/{PET_STAT_MAX}\n"
+        f"💰 تولید ساعتی: {hourly} Meow Point"
+        f"{extra}"
     )
 
 
@@ -811,6 +880,68 @@ def action_status(user_id):
     return format_pet_status(pet), back_to_pet_keyboard()
 
 
+def action_levelup(user_id):
+    """ارتقا یک لول با خرج Meow Coin."""
+    pet = get_pet(user_id)
+    if not pet:
+        return no_pet_text(), no_pet_keyboard()
+
+    pet = ensure_awake(pet)
+    name = pet["pet_name"] or "پیشی"
+    level = int(pet["level"] or 1)
+
+    if level >= PET_MAX_LEVEL:
+        return (
+            f"⭐ {name} به حداکثر Level ({PET_MAX_LEVEL}) رسیده!",
+            back_to_pet_keyboard(),
+        )
+
+    if is_pet_sleeping(pet):
+        return (
+            f"💤 {name} خوابیده... بعد از بیدار شدن ارتقا بده.",
+            back_to_pet_keyboard(),
+        )
+
+    cost = levelup_coin_cost(level)
+    balance = get_meow_coins(user_id)
+
+    if balance < cost:
+        return (
+            f"🪙 کوین کافی نداری!\n"
+            f"\n"
+            f"هزینه ارتقا به Level {level + 1}: {cost} Meow Coin\n"
+            f"موجودی تو: {balance} Meow Coin",
+            back_to_pet_keyboard(),
+        )
+
+    if not spend_meow_coins(user_id, amount=cost):
+        return (
+            f"❌ پرداخت کوین انجام نشد. دوباره امتحان کن.\n"
+            f"موجودی: {get_meow_coins(user_id)}",
+            back_to_pet_keyboard(),
+        )
+
+    new_level = level + 1
+    update_pet(
+        user_id,
+        level=new_level,
+        xp=0,
+        last_interaction=time.time(),
+    )
+    pet = get_pet(user_id)
+    hourly = hourly_points_for_level(new_level)
+
+    text = (
+        f"🎉 {name} به Level {new_level} رسید!\n"
+        f"\n"
+        f"🪙 -{cost} Meow Coin\n"
+        f"💰 تولید ساعتی جدید: {hourly} Meow Point\n"
+        f"\n"
+        f"{format_pet_home(pet)}"
+    )
+    return text, pet_home_keyboard()
+
+
 # ------------------------------------------
 # Call / random behavior
 # ------------------------------------------
@@ -828,50 +959,137 @@ def try_handle_pet_name_input(user_id, text):
     return action_set_name(user_id, text)
 
 
-def try_call_pet(user_id, text, in_group=False):
+def is_pishi_word(normalized):
     """
-    Handle calling pet by name or generic words.
-    Returns response text or None.
+    تشخیص «پیشی» و غلط‌املایی / کشیده‌نویسی رایج.
+    normalized باید از normalize_call_text آمده باشد.
     """
-    pet = get_pet(user_id)
+    if not normalized:
+        return False
+    n = normalized.replace(" ", "")
+    # exact + common
+    if n in {
+        "پیشی", "پیشیی", "پیشییی", "پیشیییی", "پیشییییی",
+        "پشی", "پشیی", "پشییی",
+        "pishi", "pishii", "pishiii",
+    }:
+        return True
+    # elongated فارسی: پ + ی* + ش + ی+
+    if re.fullmatch(r"پ+ی*ش+ی+", n):
+        return True
+    # english elongated
+    if re.fullmatch(r"p+i*sh+i+", n, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def is_pet_call_text(text, pet_name=""):
+    """آیا متن صدا زدن پیشی / اسم پیشی است؟"""
+    normalized = normalize_call_text(text)
+    if not normalized:
+        return False
+
+    # فقط یک کلمه یا «پیشی بیا» / «اسم بیا»
+    parts = normalized.split()
+    if len(parts) > 2:
+        return False
+
+    compact = normalized.replace(" ", "")
+
+    if is_pishi_word(normalized) or is_pishi_word(compact):
+        return True
+
+    # پیشی بیا / پیشی جان
+    if parts and is_pishi_word(parts[0]) and len(parts) == 2:
+        if parts[1] in {"بیا", "جان", "جانم", "بیاا", "بیااا"}:
+            return True
+
+    name = (pet_name or "").strip().lower()
+    if name:
+        name_n = normalize_call_text(name)
+        if normalized == name_n or compact == name_n.replace(" ", ""):
+            return True
+        if parts and normalize_call_text(parts[0]) == name_n:
+            if len(parts) == 1:
+                return True
+            if len(parts) == 2 and parts[1] in {"بیا", "جان", "جانم"}:
+                return True
+
+    return False
+
+
+def try_claim_hourly_points(user_id, pet):
+    """
+    اگر cooldown گذشته باشد، امتیاز ساعتی می‌دهد.
+    Returns (pet_updated, message_or_empty).
+    """
     if not pet:
-        # Only respond to explicit generic call in PV
-        normalized = normalize_call_text(text)
-        if not in_group and normalized in {
-            "پیشی",
-            "پیشی بیا",
-            "پیشی جان",
-            "pishi",
-            "pishi bia",
-        }:
+        return pet, ""
+
+    level = int(pet["level"] or 1)
+    amount = hourly_points_for_level(level)
+    last = float(pet["last_point_claim"] or 0)
+    left = remaining_cooldown(last, PET_POINT_COOLDOWN)
+
+    if left > 0:
+        return pet, (
+            f"⏳ امتیاز ساعتی هنوز آماده نیست.\n"
+            f"زمان باقی‌مانده: {format_seconds(left)}"
+        )
+
+    add_meow_points(user_id, amount=amount)
+    pet = update_pet(
+        user_id,
+        last_point_claim=time.time(),
+        last_interaction=time.time(),
+    )
+    return pet, f"🎁 {amount} Meow Point از پیشی گرفتی!"
+
+
+def try_call_pet(user_id, text, in_group=False, first_name="", username=""):
+    """
+    صدا زدن پیشی در PV یا گروه.
+    در گروه: کارت وضعیت + امتیاز ساعتی (هر ۱ ساعت یک‌بار).
+    در PV: واکنش کوتاه قبلی.
+    """
+    normalized = normalize_call_text(text)
+    pet = get_pet(user_id)
+
+    if not pet:
+        if is_pet_call_text(text, ""):
+            if in_group:
+                return (
+                    "🐱 هنوز پیشی نداری!\n"
+                    "از منوی ربات در چت خصوصی، Pet Meow بساز."
+                )
             return "🐱 تو هنوز پیشی نداری! از منوی Pet Meow یکی بساز."
         return None
 
-    pet = ensure_awake(pet)
     name = (pet["pet_name"] or "").strip()
+    if not is_pet_call_text(text, name):
+        return None
+
+    # هنوز اسم نگذاشته
     if not name:
-        return None
-
-    normalized = normalize_call_text(text)
-    name_l = name.lower()
-
-    triggers = {
-        "پیشی",
-        "پیشی بیا",
-        "پیشی جان",
-        "pishi",
-        "pishi bia",
-        name_l,
-        f"{name_l} بیا",
-        f"{name_l} جان",
-    }
-
-    if normalized not in triggers:
-        return None
-
-    if is_pet_sleeping(pet):
         if in_group:
-            return f"💤 {name} خوابیده..."
+            return "🐱 پیشی‌ت هنوز اسم نداره! تو چت خصوصی ربات اسم بذار."
+        return naming_prompt_text(is_rename=False)
+
+    pet = ensure_awake(pet)
+
+    if in_group:
+        owner = f"@{username}" if username else (first_name or "کاربر")
+        point_msg = ""
+        if not is_pet_sleeping(pet):
+            pet, point_msg = try_claim_hourly_points(user_id, pet)
+        else:
+            point_msg = f"💤 {name} خوابیده... بعداً امتیاز بده."
+
+        update_pet(user_id, last_interaction=time.time())
+        return format_group_pet_card(pet, owner_label=owner, point_msg=point_msg)
+
+    # PV — رفتار قبلی
+    if is_pet_sleeping(pet):
         return f"💤 {name} خوابیده... بذار استراحت کنه."
 
     update_pet(user_id, last_interaction=time.time())
@@ -956,6 +1174,9 @@ def handle_pet_callback(data, user_id, first_name="", username=""):
 
     if data == CB_PET_RENAME:
         return action_rename(user_id)
+
+    if data == CB_PET_LEVELUP:
+        return action_levelup(user_id)
 
     # Fallback
     return get_or_prompt_pet(user_id)[:2]

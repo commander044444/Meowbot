@@ -69,12 +69,14 @@ PET_PLAY_RELATIONSHIP = 8
 PET_PET_RELATIONSHIP = 5
 PET_SLEEP_ENERGY = 40
 
-# XP
+# XP (هرچی لول بالاتر، XP لازم بیشتر رشد می‌کنه)
 PET_XP_FEED = 5
 PET_XP_PLAY = 8
 PET_XP_PET = 3
 PET_XP_GIFT = 10
 PET_XP_PER_LEVEL = 25
+# ضریب رشد سختی لول‌آپ (بالاتر = سخت‌تر در لول‌های بالا)
+PET_XP_GROWTH = 0.4
 
 # حدود
 PET_STAT_MAX = 100
@@ -86,6 +88,17 @@ PET_SLEEP_DURATION = 120
 
 # شانس هدیه تصادفی هنگام تعامل (۰ تا ۱)
 PET_GIFT_CHANCE_BASE = 0.12
+
+# امتیاز ساعتی پیشی در گروه (ثانیه cooldown)
+# مقدار امتیاز = PET_POINT_BASE + level * PET_POINT_PER_LEVEL
+# لول ۱ → ۲۰ | لول ۲ → ۳۰ | لول ۳ → ۴۰ ...
+PET_POINT_COOLDOWN = 3600
+PET_POINT_BASE = 10
+PET_POINT_PER_LEVEL = 10
+
+# هزینه ارتقا با Meow Coin: level فعلی × این عدد
+# لول ۱→۲ = ۲۰ کوین | لول ۲→۳ = ۴۰ کوین | ...
+PET_LEVELUP_COIN_PER_LEVEL = 20
 
 
 # ------------------------------------------

@@ -299,11 +299,13 @@ async def on_message(message: Message):
 
             return
 
-    # صدا زدن Pet (PV و گروه — کوتاه)
+    # صدا زدن Pet (PV و گروه — کارت وضعیت + امتیاز ساعتی در گروه)
     call_reply = try_call_pet(
         user_id=user_id,
         text=text,
         in_group=not private_chat,
+        first_name=first_name,
+        username=username,
     )
 
     if call_reply:

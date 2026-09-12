@@ -130,9 +130,19 @@ def init_database():
 
             awaiting_name INTEGER DEFAULT 0,
 
+            last_point_claim REAL DEFAULT 0,
+
             created_at TEXT NOT NULL
         )
     """)
+
+    # Safe add last_point_claim for existing databases
+    cursor.execute("PRAGMA table_info(pets)")
+    pet_columns = [c["name"] for c in cursor.fetchall()]
+    if "last_point_claim" not in pet_columns:
+        cursor.execute(
+            "ALTER TABLE pets ADD COLUMN last_point_claim REAL DEFAULT 0"
+        )
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS season_results (
@@ -726,6 +736,41 @@ def get_meow_coins(user_id, chat_id=None):
     return int(user["meow_coins"])
 
 
+def spend_meow_coins(user_id, chat_id=None, amount=0):
+    """
+    Spend Meow Coins if balance is enough.
+    Returns True on success, False otherwise.
+    """
+    user_id = int(user_id)
+    amount = int(amount)
+    if amount <= 0:
+        return True
+
+    user = get_user(user_id, chat_id)
+    if not user:
+        return False
+    if int(user["meow_coins"] or 0) < amount:
+        return False
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        UPDATE users
+        SET meow_coins = meow_coins - ?
+        WHERE user_id = ? AND meow_coins >= ?
+        """,
+        (amount, user_id, amount),
+    )
+    ok = cursor.rowcount > 0
+    connection.commit()
+    connection.close()
+
+    if ok and chat_id is not None:
+        ensure_group_membership(user_id, chat_id)
+    return ok
+
+
 def add_meow_coins_to_all(chat_id, amount):
     """
     Add coins to every member of the given group.
@@ -1022,6 +1067,7 @@ def update_pet(user_id, **fields):
         "last_feed", "last_play", "last_pet", "last_sleep",
         "last_gift", "last_interaction", "last_random",
         "awaiting_name",
+        "last_point_claim",
     }
 
     sets = []
