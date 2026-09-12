@@ -7,7 +7,6 @@ import re
 import time
 
 from config import (
-    ALLOWED_GROUP,
     MEOW_COOLDOWN,
 )
 
@@ -43,16 +42,15 @@ MEOW_WORDS = {
 # ==========================================
 
 def normalize_text(text):
+
     if not text:
         return ""
 
     text = str(text)
 
-    # حذف ZWNJ و ZWJ
     text = text.replace("\u200c", "")
     text = text.replace("\u200d", "")
 
-    # یکسان‌سازی فاصله‌ها
     text = re.sub(r"\s+", " ", text)
 
     return text.strip().lower()
@@ -63,18 +61,17 @@ def normalize_text(text):
 # ==========================================
 
 def is_meow(text):
+
     normalized = normalize_text(text)
 
     if normalized in MEOW_WORDS:
         return True
 
-    # میوهای کشیده مثل:
-    # میــــــو
-    # میــــــــــــــو
+    # میوهای کشیده
     if re.fullmatch(r"می[ـ\-]*و", normalized):
         return True
 
-    # حالت‌های انگلیسی
+    # English
     if normalized in ("mew", "meow"):
         return True
 
@@ -82,59 +79,23 @@ def is_meow(text):
 
 
 # ==========================================
-# 🔐 Allowed Group
+# 🌍 Allowed Group
 # ==========================================
 
 def is_allowed_group(chat_id, chat_username):
     """
-    بررسی می‌کند که پیام از یکی از گروه‌های مجاز آمده باشد.
+    MeowBot در تمام گروه‌ها فعال است.
 
-    ALLOWED_GROUP می‌تواند:
-        "@group1"
+    دیگر ALLOWED_GROUP بررسی نمی‌شود.
 
-    یا:
-        [
-            "@group1",
-            "@group2",
-        ]
-    باشد.
+    هر گروهی که ربات در آن پیام دریافت کند
+    می‌تواند از سیستم MeowBot استفاده کند.
     """
 
-    # --------------------------------------
-    # تبدیل تنظیمات به لیست
-    # --------------------------------------
+    if chat_id is None:
+        return False
 
-    if isinstance(ALLOWED_GROUP, (list, tuple, set)):
-        allowed_groups = ALLOWED_GROUP
-    else:
-        allowed_groups = [ALLOWED_GROUP]
-
-    # --------------------------------------
-    # نرمال‌سازی username
-    # --------------------------------------
-
-    username = str(chat_username or "").strip().lower()
-
-    if username and not username.startswith("@"):
-        username = "@" + username
-
-    # --------------------------------------
-    # بررسی username
-    # --------------------------------------
-
-    for group in allowed_groups:
-        if not group:
-            continue
-
-        group = str(group).strip().lower()
-
-        if group and not group.startswith("@"):
-            group = "@" + group
-
-        if username == group:
-            return True
-
-    return False
+    return True
 
 
 # ==========================================
@@ -142,6 +103,7 @@ def is_allowed_group(chat_id, chat_username):
 # ==========================================
 
 def get_remaining_cooldown(user_id, chat_id):
+
     user = get_user(
         user_id=user_id,
         chat_id=chat_id,
@@ -175,6 +137,7 @@ def register_meow(
     first_name="",
     username="",
 ):
+
     user_id = int(user_id)
     chat_id = str(chat_id)
 
@@ -185,6 +148,7 @@ def register_meow(
 
     # اگر کاربر وجود نداشت
     if not user:
+
         create_user(
             user_id=user_id,
             chat_id=chat_id,
@@ -197,9 +161,9 @@ def register_meow(
             chat_id=chat_id,
         )
 
-    # --------------------------------------
-    # بررسی Cooldown
-    # --------------------------------------
+    # ======================================
+    # Cooldown
+    # ======================================
 
     remaining = get_remaining_cooldown(
         user_id=user_id,
@@ -207,6 +171,7 @@ def register_meow(
     )
 
     if remaining > 0:
+
         return {
             "success": False,
             "reason": "cooldown",
@@ -214,40 +179,61 @@ def register_meow(
             "points": 0,
         }
 
-    # --------------------------------------
-    # دریافت Meow Point
-    # --------------------------------------
+
+    # ======================================
+    # Meow Points
+    # ======================================
 
     points = random.randint(1, 30)
 
-    current_points = int(user["meow_points"] or 0)
+    current_points = int(
+        user["meow_points"] or 0
+    )
 
-    current_coins = int(user["meow_coins"] or 0)
+    current_coins = int(
+        user["meow_coins"] or 0
+    )
 
-    gym_level = int(user["gym_level"] or 1)
+    gym_level = int(
+        user["gym_level"] or 1
+    )
 
-    # --------------------------------------
-    # ذخیره
-    # --------------------------------------
+
+    # ======================================
+    # Save
+    # ======================================
 
     update_user(
         user_id=user_id,
         chat_id=chat_id,
-        first_name=first_name or user["first_name"],
-        username=username or user["username"],
+        first_name=(
+            first_name
+            or user["first_name"]
+        ),
+        username=(
+            username
+            or user["username"]
+        ),
         meow_points=current_points + points,
         meow_coins=current_coins,
         gym_level=gym_level,
         last_meow=time.time(),
     )
 
+
+    # ======================================
+    # Result
+    # ======================================
+
     return {
-    "success": True,
-    "reason": "meow",
-    "earned": points,
-    "points": points,
-    "total_points": current_points + points,
-    "remaining": 0,
+        "success": True,
+        "reason": "meow",
+        "earned": points,
+        "points": points,
+        "total_points": (
+            current_points + points
+        ),
+        "remaining": 0,
     }
 
 
@@ -256,12 +242,17 @@ def register_meow(
 # ==========================================
 
 def format_cooldown(seconds):
+
     seconds = max(0, int(seconds))
 
     minutes = seconds // 60
     seconds = seconds % 60
 
     if minutes > 0:
-        return f"{minutes} دقیقه و {seconds} ثانیه"
+
+        return (
+            f"{minutes} دقیقه و "
+            f"{seconds} ثانیه"
+        )
 
     return f"{seconds} ثانیه"
