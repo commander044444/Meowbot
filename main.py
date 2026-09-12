@@ -12,6 +12,8 @@ from config import (
 
 from database import (
     init_database,
+    register_group,
+    get_all_groups,
     add_meow_points_to_all,
     add_meow_coins_to_all,
 )
@@ -80,7 +82,7 @@ async def on_ready():
     print("=" * 55)
 
     print(
-        f"🎀 Group: {ALLOWED_GROUP}"
+        f"🎀 Legacy Group Config: {ALLOWED_GROUP}"
     )
 
     print(
@@ -153,6 +155,42 @@ async def on_message(message: Message):
         "username",
         None
     )
+
+    chat_title = (
+        getattr(
+            chat,
+            "title",
+            None
+        )
+        or ""
+    )
+
+    # ======================================
+    # Register Group
+    # ======================================
+
+    # فقط چت‌هایی که title دارند یا username گروهی دارند
+    # در لیست Broadcast ثبت می‌شوند.
+    #
+    # این کار باعث می‌شود چت خصوصی وارد Broadcast نشود.
+
+    if chat_id is not None:
+
+        if chat_title or chat_username:
+
+            try:
+
+                register_group(
+                    chat_id=chat_id,
+                    title=chat_title,
+                    username=chat_username or ""
+                )
+
+            except Exception as e:
+
+                print(
+                    f"❌ Group registration failed for {chat_id}: {e}"
+                )
 
     # ======================================
     # Allowed Group
@@ -228,6 +266,7 @@ async def on_message(message: Message):
 
             return
 
+
         # ----------------------------------
         # Meow Point
         # ----------------------------------
@@ -244,12 +283,17 @@ async def on_message(message: Message):
             if normalized_text.startswith(prefix):
 
                 point_command = text[len(prefix):].strip()
+
                 break
+
 
         if point_command is not None:
 
             try:
-                amount = int(point_command)
+
+                amount = int(
+                    point_command
+                )
 
             except ValueError:
 
@@ -261,6 +305,7 @@ async def on_message(message: Message):
 
                 return
 
+
             if amount <= 0:
 
                 await message.reply(
@@ -268,6 +313,7 @@ async def on_message(message: Message):
                 )
 
                 return
+
 
             try:
 
@@ -311,12 +357,17 @@ async def on_message(message: Message):
             if normalized_text.startswith(prefix):
 
                 coin_command = text[len(prefix):].strip()
+
                 break
+
 
         if coin_command is not None:
 
             try:
-                amount = int(coin_command)
+
+                amount = int(
+                    coin_command
+                )
 
             except ValueError:
 
@@ -328,6 +379,7 @@ async def on_message(message: Message):
 
                 return
 
+
             if amount <= 0:
 
                 await message.reply(
@@ -335,6 +387,7 @@ async def on_message(message: Message):
                 )
 
                 return
+
 
             try:
 
@@ -366,14 +419,21 @@ async def on_message(message: Message):
         # Text Broadcast
         # ----------------------------------
 
-        broadcast_text = text[len("همگانی"):].strip()
+        broadcast_text = text[
+            len("همگانی"):
+        ].strip()
+
 
         if (
             len(broadcast_text) >= 2
             and broadcast_text[0] in {'"', "«", "'"}
             and broadcast_text[-1] in {'"', "»", "'"}
         ):
-            broadcast_text = broadcast_text[1:-1].strip()
+
+            broadcast_text = broadcast_text[
+                1:-1
+            ].strip()
+
 
         if not broadcast_text:
 
@@ -387,34 +447,89 @@ async def on_message(message: Message):
 
 
         # ----------------------------------
+        # Get Registered Groups
+        # ----------------------------------
+
+        try:
+
+            groups = get_all_groups()
+
+        except Exception as e:
+
+            print(
+                f"❌ Failed to load groups: {e}"
+            )
+
+            await message.reply(
+                "❌ نتونستم لیست گروه‌ها رو از دیتابیس بگیرم."
+            )
+
+            return
+
+
+        # ----------------------------------
+        # No Groups
+        # ----------------------------------
+
+        if not groups:
+
+            await message.reply(
+                "📢🐱 هنوز هیچ گروهی برای Broadcast "
+                "در دیتابیس ثبت نشده."
+            )
+
+            return
+
+
+        # ----------------------------------
         # Send To All Groups
         # ----------------------------------
 
         sent = 0
+        failed = 0
 
-        for group in ALLOWED_GROUP:
+        total_groups = len(
+            groups
+        )
+
+
+        for group in groups:
+
+            group_id = group["chat_id"]
 
             try:
 
                 await bot.send_message(
-                    group,
+                    group_id,
                     broadcast_text
                 )
 
                 sent += 1
 
-            except Exception as e:
-
                 print(
-                    f"❌ Broadcast failed for {group}: {e}"
+                    f"✅ Broadcast sent -> {group_id}"
                 )
 
+            except Exception as e:
+
+                failed += 1
+
+                print(
+                    f"❌ Broadcast failed -> "
+                    f"{group_id}: {e}"
+                )
+
+
+        # ----------------------------------
+        # Broadcast Report
+        # ----------------------------------
 
         await message.reply(
             "📢🐱 همگانی ارسال شد!\n\n"
             "━━━━━━━━━━━━━━\n"
-            f"👥 گروه‌های دریافت‌کننده: {sent}\n"
-            f"📋 گروه‌های تنظیم‌شده: {len(ALLOWED_GROUP)}\n"
+            f"👥 کل گروه‌های ثبت‌شده: {total_groups}\n"
+            f"✅ ارسال موفق: {sent}\n"
+            f"❌ ارسال ناموفق: {failed}\n"
             "━━━━━━━━━━━━━━"
         )
 
@@ -440,6 +555,7 @@ async def on_message(message: Message):
             None
         )
 
+
         if reply_message:
 
             replied_author = getattr(
@@ -449,7 +565,9 @@ async def on_message(message: Message):
             )
 
             if replied_author:
+
                 target_user = replied_author
+
 
         target_user_id = target_user.id
 
@@ -471,12 +589,14 @@ async def on_message(message: Message):
             or ""
         )
 
+
         profile_text = format_profile(
             user_id=target_user_id,
             chat_id=chat_id,
             first_name=target_first_name,
             username=target_username
         )
+
 
         await message.reply(
             profile_text
@@ -493,6 +613,7 @@ async def on_message(message: Message):
         normalized_text
     )
 
+
     if amount is not None:
 
         reply_message = getattr(
@@ -500,6 +621,7 @@ async def on_message(message: Message):
             "reply_to_message",
             None
         )
+
 
         if not reply_message:
 
@@ -512,11 +634,13 @@ async def on_message(message: Message):
 
             return
 
+
         receiver = getattr(
             reply_message,
             "author",
             None
         )
+
 
         if not receiver:
 
@@ -525,6 +649,7 @@ async def on_message(message: Message):
             )
 
             return
+
 
         receiver_id = receiver.id
 
@@ -537,6 +662,7 @@ async def on_message(message: Message):
             or "Unknown"
         )
 
+
         result = transfer_coins(
             sender_id=user_id,
             receiver_id=receiver_id,
@@ -544,19 +670,23 @@ async def on_message(message: Message):
             amount=amount
         )
 
+
         if not result["success"]:
 
             reason = result.get(
                 "reason"
             )
 
+
             if reason == "self_transfer":
 
                 await message.reply(
-                    "😂🪙 نمی‌تونی به خودت Meow Coin انتقال بدی!"
+                    "😂🪙 نمی‌تونی به خودت "
+                    "Meow Coin انتقال بدی!"
                 )
 
                 return
+
 
             if reason == "not_enough_coins":
 
@@ -575,6 +705,7 @@ async def on_message(message: Message):
 
                 return
 
+
             if reason == "sender_not_found":
 
                 await message.reply(
@@ -582,6 +713,7 @@ async def on_message(message: Message):
                 )
 
                 return
+
 
             if reason == "receiver_not_found":
 
@@ -591,12 +723,14 @@ async def on_message(message: Message):
 
                 return
 
+
             await message.reply(
                 "❌ انتقال انجام نشد.\n"
                 "لطفاً دوباره تلاش کن."
             )
 
             return
+
 
         await message.reply(
             "🪙✨ انتقال موفق بود!\n\n"
@@ -633,6 +767,7 @@ async def on_message(message: Message):
             None
         )
 
+
         if not reply_message:
 
             await message.reply(
@@ -642,11 +777,13 @@ async def on_message(message: Message):
 
             return
 
+
         defender = getattr(
             reply_message,
             "author",
             None
         )
+
 
         if not defender:
 
@@ -656,7 +793,9 @@ async def on_message(message: Message):
 
             return
 
+
         defender_id = defender.id
+
 
         result = start_battle(
             attacker_id=user_id,
@@ -664,9 +803,12 @@ async def on_message(message: Message):
             chat_id=chat_id
         )
 
+
         if not result["success"]:
 
-            if result.get("reason") == "self_battle":
+            if result.get(
+                "reason"
+            ) == "self_battle":
 
                 await message.reply(
                     "😂🐱 نمی‌تونی با خودت بجنگی!"
@@ -674,11 +816,13 @@ async def on_message(message: Message):
 
                 return
 
+
             await message.reply(
                 "❌ جنگ میویی انجام نشد."
             )
 
             return
+
 
         winner_name = result["winner_name"]
         loser_name = result["loser_name"]
@@ -689,13 +833,14 @@ async def on_message(message: Message):
         attacker_level = result["attacker_level"]
         defender_level = result["defender_level"]
 
+
         await message.reply(
             "⚔️🐱 نبرد میویی!\n\n"
             "━━━━━━━━━━━━━━\n"
             f"👤 مهاجم: "
             f"{result['attacker_name']}\n"
             f"🏋️ Level: "
-            f"{attacker_level}\n\n"
+            f"{attacker_level}\n"
             f"🛡️ مدافع: "
             f"{result['defender_name']}\n"
             f"🏋️ Level: "
@@ -730,6 +875,7 @@ async def on_message(message: Message):
             chat_id=chat_id
         )
 
+
         await message.reply(
             ranking_text
         )
@@ -753,15 +899,17 @@ async def on_message(message: Message):
             chat_id=chat_id
         )
 
+
         if not rank:
 
             await message.reply(
                 f"🐱🎀 {first_name}\n\n"
-                f"هنوز توی رنکینگ نیستی!\n"
-                f"یه میو بزن تا وارد رقابت بشی 🐾✨"
+                "هنوز توی رنکینگ نیستی!\n"
+                "یه میو بزن تا وارد رقابت بشی 🐾✨"
             )
 
             return
+
 
         await message.reply(
             f"🏆🎀 رتبه تو\n\n"
@@ -769,7 +917,7 @@ async def on_message(message: Message):
             f"🥇 رتبه: #{rank['rank']}\n"
             f"🐾 Meow Point: {rank['meow_points']}\n"
             f"🏋️ Gym Level: {rank['gym_level']}\n\n"
-            f"ادامه بده، شاید قهرمان میویی بشی! ✨"
+            "ادامه بده، شاید قهرمان میویی بشی! ✨"
         )
 
         return
@@ -794,6 +942,7 @@ async def on_message(message: Message):
             username=username
         )
 
+
         if status["max_level"]:
 
             await message.reply(
@@ -801,14 +950,14 @@ async def on_message(message: Message):
                 f"✨ Level: {status['level']} / 100\n"
                 f"⚡ قدرت: {status['power']}\n"
                 f"🐾 Meow Point: {status['points']}\n\n"
-                f"🌸 به آخرین Level رسیدی!\n"
-                f"دیگه قوی‌تر از این نمی‌شه شد 😭💗"
+                "🌸 به آخرین Level رسیدی!\n"
+                "دیگه قوی‌تر از این نمی‌شه شد 😭💗"
             )
 
         else:
 
             await message.reply(
-                f"🎀🏋️‍♀️ باشگاه میویی\n\n"
+                "🎀🏋️‍♀️ باشگاه میویی\n\n"
                 f"🐱 {first_name}\n\n"
                 f"✨ Level: {status['level']} / 100\n"
                 f"⚡ قدرت: {status['power']}\n"
@@ -817,8 +966,8 @@ async def on_message(message: Message):
                 f"Level {status['level'] + 1}\n"
                 f"💸 هزینه: "
                 f"{status['upgrade_cost']} Meow Point\n\n"
-                f"برای ارتقا بنویس:\n"
-                f"💪 ارتقا باشگاه"
+                "برای ارتقا بنویس:\n"
+                "💪 ارتقا باشگاه"
             )
 
         return
@@ -843,18 +992,20 @@ async def on_message(message: Message):
             username=username
         )
 
+
         if result["reason"] == "max_level":
 
             await message.reply(
-                f"👑🏋️‍♀️ وااای!\n\n"
+                "👑🏋️‍♀️ وااای!\n\n"
                 f"🐱 {first_name}، "
-                f"باشگاهت به Level 100 رسیده!\n\n"
-                f"✨ Level: 100 / 100\n"
+                "باشگاهت به Level 100 رسیده!\n\n"
+                "✨ Level: 100 / 100\n"
                 f"⚡ قدرت: {result['power']}\n\n"
-                f"دیگه رسماً استاد میویی هستی 😭🎀"
+                "دیگه رسماً استاد میویی هستی 😭🎀"
             )
 
             return
+
 
         if result["reason"] == "not_enough_points":
 
@@ -864,19 +1015,20 @@ async def on_message(message: Message):
             )
 
             await message.reply(
-                f"🥺🎀 اوپس!\n\n"
-                f"برای ارتقای باشگاهت "
-                f"Meow Point کافی نداری.\n\n"
+                "🥺🎀 اوپس!\n\n"
+                "برای ارتقای باشگاهت "
+                "Meow Point کافی نداری.\n\n"
                 f"🐾 موجودی: {result['points']}\n"
                 f"💸 نیاز: {result['cost']}\n"
                 f"🌸 کمبود: {needed}\n\n"
-                f"برو چندتا میوی خوشگل بکن 🐱💗"
+                "برو چندتا میوی خوشگل بکن 🐱💗"
             )
 
             return
 
+
         await message.reply(
-            f"🎀✨ LEVEL UP! ✨🎀\n\n"
+            "🎀✨ LEVEL UP! ✨🎀\n\n"
             f"🐱 {first_name}\n\n"
             f"🏋️‍♀️ Level: "
             f"{result['level']} → "
@@ -885,7 +1037,7 @@ async def on_message(message: Message):
             f"{result['power']}\n\n"
             f"🐾 Meow Point باقی‌مانده: "
             f"{result['points']}\n\n"
-            f"تو قوی‌تر شدییی 😭💗"
+            "تو قوی‌تر شدییی 😭💗"
         )
 
         return
@@ -898,12 +1050,14 @@ async def on_message(message: Message):
     if not is_meow(text):
         return
 
+
     result = register_meow(
         user_id=user_id,
         chat_id=chat_id,
         first_name=first_name,
         username=username
     )
+
 
     if not result["success"]:
 
@@ -912,22 +1066,24 @@ async def on_message(message: Message):
         )
 
         await message.reply(
-            f"🎀 وایسا کوچولو 🐱💗\n\n"
-            f"میوی بعدیت هنوز آماده نیست!\n"
+            "🎀 وایسا کوچولو 🐱💗\n\n"
+            "میوی بعدیت هنوز آماده نیست!\n"
             f"⏰ {remaining} دیگه می‌تونی میو کنی ✨"
         )
 
         return
 
+
     points = result["points"]
     earned = result["earned"]
 
+
     await message.reply(
-        f"🐱✨ میوووو!\n\n"
-        f"🎀 {first_name}، خوش‌شانس بودی!\n\n"
+        "🐱✨ میوووو!\n\n"
+        f"🎀 {first_name}، خوش‌شانس بودی!\n"
         f"🐾 جایزه این میو: +{earned}\n"
         f"🌸 مجموع Meow Point: {points}\n"
-        f"💗 میوی بعدی: ۵ دقیقه دیگه"
+        "💗 میوی بعدی: ۵ دقیقه دیگه"
     )
 
 
