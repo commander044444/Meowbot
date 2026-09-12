@@ -26,7 +26,8 @@ OWNER_ID = 1967315238
 ALLOWED_GROUP = [
     "@testcmbot",
     "@lilililillilililililililili",
-    "@MeowKonan"
+    "@MeowKonan",
+    "@possibly"
 ]
 
 
