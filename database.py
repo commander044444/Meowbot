@@ -168,6 +168,56 @@ def update_user_info(
 
 
 # ==========================================
+# Full User Update
+# ==========================================
+
+def update_user(
+    user_id,
+    chat_id,
+    first_name="",
+    username="",
+    meow_points=0,
+    meow_coins=0,
+    gym_level=1,
+    last_meow=0
+):
+    """
+    بروزرسانی کامل اطلاعات کاربر.
+
+    این تابع برای سازگاری با Meow System
+    و سایر بخش‌های قدیمی ربات نگه داشته شده است.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET
+            first_name = ?,
+            username = ?,
+            meow_points = ?,
+            meow_coins = ?,
+            gym_level = ?,
+            last_meow = ?
+        WHERE user_id = ?
+        AND chat_id = ?
+    """, (
+        first_name or "",
+        username or "",
+        int(meow_points),
+        int(meow_coins),
+        int(gym_level),
+        float(last_meow),
+        int(user_id),
+        str(chat_id)
+    ))
+
+    connection.commit()
+    connection.close()
+
+
+# ==========================================
 # Meow Points
 # ==========================================
 
