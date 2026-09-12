@@ -179,6 +179,31 @@ def init_database():
         ON content_history (user_id, content_type)
     """)
 
+    # ------------------------------------------------------------------
+    # Meow Bank
+    # ------------------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS banks (
+            user_id INTEGER PRIMARY KEY,
+            card_number TEXT NOT NULL UNIQUE,
+            balance INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_banks_card
+        ON banks (card_number)
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bank_pending (
+            user_id INTEGER PRIMARY KEY,
+            action TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     connection.commit()
 
     # ------------------------------------------------------------------
@@ -1171,4 +1196,208 @@ def count_seen_content(user_id, content_type):
     row = cursor.fetchone()
     connection.close()
     return int(row["c"]) if row else 0
+
+
+# ==========================================
+# 🏦 Meow Bank
+# ==========================================
+
+def get_bank(user_id):
+    user_id = int(user_id)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT * FROM banks WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return row
+
+
+def get_bank_by_card(card_number):
+    card_number = str(card_number).strip()
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT * FROM banks WHERE card_number = ?",
+        (card_number,),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return row
+
+
+def card_number_exists(card_number):
+    return get_bank_by_card(card_number) is not None
+
+
+def create_bank(user_id, card_number):
+    from datetime import datetime
+
+    user_id = int(user_id)
+    card_number = str(card_number).strip()
+    now = datetime.now().isoformat()
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO banks (user_id, card_number, balance, created_at)
+            VALUES (?, ?, 0, ?)
+            """,
+            (user_id, card_number, now),
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        connection.close()
+        return None
+    connection.close()
+    return get_bank(user_id)
+
+
+def update_bank_balance(user_id, delta):
+    """
+    Add delta to bank balance (can be negative).
+    Returns updated bank row or None if fail / insufficient.
+    """
+    user_id = int(user_id)
+    delta = int(delta)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT balance FROM banks WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        connection.close()
+        return None
+    new_bal = int(row["balance"] or 0) + delta
+    if new_bal < 0:
+        connection.close()
+        return None
+    cursor.execute(
+        "UPDATE banks SET balance = ? WHERE user_id = ?",
+        (new_bal, user_id),
+    )
+    connection.commit()
+    connection.close()
+    return get_bank(user_id)
+
+
+def set_bank_pending(user_id, action):
+    from datetime import datetime
+
+    user_id = int(user_id)
+    action = str(action)
+    now = datetime.now().isoformat()
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO bank_pending (user_id, action, created_at)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, action, now),
+    )
+    connection.commit()
+    connection.close()
+
+
+def get_bank_pending(user_id):
+    user_id = int(user_id)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT * FROM bank_pending WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return row
+
+
+def clear_bank_pending(user_id):
+    user_id = int(user_id)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "DELETE FROM bank_pending WHERE user_id = ?",
+        (user_id,),
+    )
+    connection.commit()
+    connection.close()
+
+
+def bank_transfer(sender_id, receiver_id, amount):
+    """
+    Transfer amount from sender bank to receiver bank.
+    Returns dict with success/reason.
+    """
+    sender_id = int(sender_id)
+    receiver_id = int(receiver_id)
+    amount = int(amount)
+    if amount <= 0:
+        return {"success": False, "reason": "invalid_amount"}
+    if sender_id == receiver_id:
+        return {"success": False, "reason": "self_transfer"}
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("BEGIN")
+        cursor.execute(
+            "SELECT balance, card_number FROM banks WHERE user_id = ?",
+            (sender_id,),
+        )
+        sender = cursor.fetchone()
+        cursor.execute(
+            "SELECT balance, card_number FROM banks WHERE user_id = ?",
+            (receiver_id,),
+        )
+        receiver = cursor.fetchone()
+
+        if not sender:
+            connection.rollback()
+            return {"success": False, "reason": "sender_no_bank"}
+        if not receiver:
+            connection.rollback()
+            return {"success": False, "reason": "receiver_no_bank"}
+
+        s_bal = int(sender["balance"] or 0)
+        if s_bal < amount:
+            connection.rollback()
+            return {
+                "success": False,
+                "reason": "not_enough_balance",
+                "balance": s_bal,
+            }
+
+        cursor.execute(
+            "UPDATE banks SET balance = balance - ? WHERE user_id = ?",
+            (amount, sender_id),
+        )
+        cursor.execute(
+            "UPDATE banks SET balance = balance + ? WHERE user_id = ?",
+            (amount, receiver_id),
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        connection.close()
+        return {"success": False, "reason": "error"}
+    connection.close()
+
+    s_bank = get_bank(sender_id)
+    r_bank = get_bank(receiver_id)
+    return {
+        "success": True,
+        "sender_balance": int(s_bank["balance"]) if s_bank else 0,
+        "receiver_balance": int(r_bank["balance"]) if r_bank else 0,
+        "sender_card": s_bank["card_number"] if s_bank else "",
+        "receiver_card": r_bank["card_number"] if r_bank else "",
+        "amount": amount,
+    }
 

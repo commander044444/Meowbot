@@ -8,6 +8,7 @@ from database import (
     get_meow_points,
     get_meow_coins,
     get_gym_level,
+    get_bank,
 )
 
 from gym import (
@@ -115,6 +116,14 @@ def get_profile(
 
         rank = None
 
+    bank = get_bank(user_id)
+    if bank:
+        bank_balance = int(bank["balance"] or 0)
+        bank_card = bank["card_number"] or ""
+    else:
+        bank_balance = 0
+        bank_card = None
+
     # --------------------------------------
     # Profile Data
     # --------------------------------------
@@ -131,6 +140,9 @@ def get_profile(
         "power": power,
 
         "rank": rank,
+
+        "bank_balance": bank_balance,
+        "bank_card": bank_card,
     }
 
 
@@ -183,6 +195,16 @@ def format_profile(
             "🏆 رتبه: هنوز وارد رنکینگ نشده"
         )
 
+    bank_card = profile.get("bank_card")
+    bank_balance = profile.get("bank_balance", 0)
+    if bank_card:
+        bank_text = (
+            f"🏦 موجودی بانک: {bank_balance} Meow Coin\n"
+            f"💳 شماره کارت: {bank_card}"
+        )
+    else:
+        bank_text = "🏦 بانک: هنوز ساخته نشده"
+
     return (
         "🐱🎀 پروفایل میویی\n"
         "\n"
@@ -198,6 +220,7 @@ def format_profile(
         "\n"
         f"🐾 Meow Point: {profile['meow_points']}\n"
         f"🪙 Meow Coin: {profile['meow_coins']}\n"
+        f"{bank_text}\n"
         f"🏋️ Gym Level: {profile['gym_level']} / 100\n"
         f"⚡ قدرت: {profile['power']}\n"
         f"{rank_text}\n"

@@ -74,6 +74,16 @@ from pet import (
 
 from tdf import handle_tdf
 
+from bank import (
+    is_bank_command,
+    is_bank_callback,
+    get_bank_page,
+    handle_bank_callback,
+    try_handle_bank_amount,
+    parse_card_transfer,
+    handle_card_to_card,
+)
+
 
 # ==========================================
 # Database
@@ -360,6 +370,69 @@ async def on_message(message: Message):
 
             await message.reply(tdf_reply)
             return
+
+
+    # ======================================
+    # 🏦 بانک میویی
+    # ======================================
+
+    # مبلغ واریز/برداشت در انتظار (گروه یا PV)
+    bank_amount_reply = try_handle_bank_amount(
+        user_id=user_id,
+        text=text,
+        first_name=first_name,
+        username=username,
+    )
+    if bank_amount_reply is not None:
+        await message.reply(bank_amount_reply)
+        return
+
+    if is_bank_command(text):
+        bank_text, bank_kb = get_bank_page(
+            user_id=user_id,
+            first_name=first_name,
+            username=username,
+        )
+        await message.reply(bank_text, components=bank_kb)
+        return
+
+    # کارت به کارت (ریپلای + مبلغ)
+    card_amount = parse_card_transfer(text)
+    if card_amount is not None:
+        reply_message = getattr(message, "reply_to_message", None)
+        if not reply_message:
+            await message.reply(
+                "💳 برای کارت‌به‌کارت باید روی پیام شخص ریپلای کنی.\n"
+                "مثال: کارت به کارت میویی ۱۰۰"
+            )
+            return
+
+        receiver = getattr(reply_message, "author", None)
+        if not receiver:
+            await message.reply("❌ شخص گیرنده پیدا نشد.")
+            return
+
+        receiver_id = receiver.id
+        receiver_name = (
+            getattr(receiver, "first_name", None) or "Unknown"
+        )
+        r_username = getattr(receiver, "username", None) or ""
+        if r_username:
+            receiver_label = f"@{r_username}"
+        else:
+            receiver_label = receiver_name
+
+        sender_label = f"@{username}" if username else first_name
+
+        tx_text = handle_card_to_card(
+            sender_id=user_id,
+            receiver_id=receiver_id,
+            amount=card_amount,
+            sender_name=sender_label,
+            receiver_name=receiver_label,
+        )
+        await message.reply(tx_text)
+        return
 
 
     # ======================================
@@ -1296,6 +1369,56 @@ async def on_callback(callback: CallbackQuery):
                 )
             except Exception as send_error:
                 print(f"❌ Pet callback send failed: {send_error}")
+
+        return
+
+    # --------------------------------------
+    # Bank callbacks
+    # --------------------------------------
+    if is_bank_callback(data):
+
+        text, keyboard = handle_bank_callback(
+            data=data,
+            user_id=user_id,
+            first_name=first_name,
+            username=username,
+        )
+
+        if not cb_message:
+            return
+
+        try:
+            if hasattr(cb_message, "edit"):
+                await cb_message.edit(
+                    text,
+                    components=keyboard
+                )
+            elif hasattr(cb_message, "edit_text"):
+                await cb_message.edit_text(
+                    text,
+                    components=keyboard
+                )
+            else:
+                await bot.send_message(
+                    getattr(cb_message.chat, "id", user_id),
+                    text,
+                    components=keyboard
+                )
+        except Exception as e:
+            print(f"❌ Bank callback edit failed: {e}")
+            try:
+                chat_id = getattr(
+                    getattr(cb_message, "chat", None), "id", None
+                )
+                if chat_id is None:
+                    chat_id = user_id
+                await bot.send_message(
+                    chat_id,
+                    text,
+                    components=keyboard
+                )
+            except Exception as send_error:
+                print(f"❌ Bank callback send failed: {send_error}")
 
         return
 
