@@ -242,11 +242,12 @@ def register_meow(
     )
 
     return {
-        "success": True,
-        "reason": "meow",
-        "points": points,
-        "total_points": current_points + points,
-        "remaining": 0,
+    "success": True,
+    "reason": "meow",
+    "earned": points,
+    "points": points,
+    "total_points": current_points + points,
+    "remaining": 0,
     }
 
 
