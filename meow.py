@@ -2,23 +2,24 @@
 # 🐱 MeowBot - Meow System
 # ==========================================
 
-import time
 import random
 import re
+import time
 
-from config import MEOW_COOLDOWN, ALLOWED_GROUP
+from config import (
+    ALLOWED_GROUP,
+    MEOW_COOLDOWN,
+)
 
 from database import (
     create_user,
     get_user,
-    add_meow_points,
-    set_last_meow,
-    get_last_meow,
+    update_user,
 )
 
 
 # ==========================================
-# Meow Words
+# 🐾 Meow Words
 # ==========================================
 
 MEOW_WORDS = {
@@ -38,87 +39,125 @@ MEOW_WORDS = {
 
 
 # ==========================================
-# Normalize Text
+# 🧹 Text Normalizer
 # ==========================================
 
 def normalize_text(text):
-    """
-    متن را برای تشخیص بهتر میو یکدست می‌کند.
-    """
-
     if not text:
         return ""
 
-    text = text.strip().lower()
+    text = str(text)
 
-    # حذف فاصله‌های اضافی
+    # حذف ZWNJ و ZWJ
+    text = text.replace("\u200c", "")
+    text = text.replace("\u200d", "")
+
+    # یکسان‌سازی فاصله‌ها
     text = re.sub(r"\s+", " ", text)
 
-    return text
+    return text.strip().lower()
 
 
 # ==========================================
-# Is Meow?
+# 🐱 Check Meow
 # ==========================================
 
 def is_meow(text):
-    """
-    بررسی می‌کند که آیا پیام یک میوی معتبر است یا نه.
-    """
-
     normalized = normalize_text(text)
 
-    if not normalized:
-        return False
+    if normalized in MEOW_WORDS:
+        return True
 
-    return normalized in MEOW_WORDS
+    # میوهای کشیده مثل:
+    # میــــــو
+    # میــــــــــــــو
+    if re.fullmatch(r"می[ـ\-]*و", normalized):
+        return True
+
+    # حالت‌های انگلیسی
+    if normalized in ("mew", "meow"):
+        return True
+
+    return False
 
 
 # ==========================================
-# Group Check
+# 🔐 Allowed Group
 # ==========================================
 
-def is_allowed_group(chat_id, chat_username=None):
+def is_allowed_group(chat_id, chat_username):
     """
-    بررسی می‌کند که بازی فقط در گروه مجاز اجرا شود.
+    بررسی می‌کند که پیام از یکی از گروه‌های مجاز آمده باشد.
+
+    ALLOWED_GROUP می‌تواند:
+        "@group1"
+
+    یا:
+        [
+            "@group1",
+            "@group2",
+        ]
+    باشد.
     """
 
-    if chat_username:
-        username = str(chat_username).strip().lower()
+    # --------------------------------------
+    # تبدیل تنظیمات به لیست
+    # --------------------------------------
 
-        if not username.startswith("@"):
-            username = "@" + username
+    if isinstance(ALLOWED_GROUP, (list, tuple, set)):
+        allowed_groups = ALLOWED_GROUP
+    else:
+        allowed_groups = [ALLOWED_GROUP]
 
-        if username == ALLOWED_GROUP.lower():
+    # --------------------------------------
+    # نرمال‌سازی username
+    # --------------------------------------
+
+    username = str(chat_username or "").strip().lower()
+
+    if username and not username.startswith("@"):
+        username = "@" + username
+
+    # --------------------------------------
+    # بررسی username
+    # --------------------------------------
+
+    for group in allowed_groups:
+        if not group:
+            continue
+
+        group = str(group).strip().lower()
+
+        if group and not group.startswith("@"):
+            group = "@" + group
+
+        if username == group:
             return True
 
-    return str(chat_id) == str(ALLOWED_GROUP)
+    return False
 
 
 # ==========================================
-# Cooldown
+# ⏱ Cooldown
 # ==========================================
 
 def get_remaining_cooldown(user_id, chat_id):
-    """
-    مقدار زمان باقی‌مانده تا میوی بعدی را برمی‌گرداند.
-
-    خروجی:
-        0  = آماده میو کردن
-        >0 = تعداد ثانیه باقی‌مانده
-    """
-
-    last_meow = get_last_meow(
-        user_id,
-        chat_id
+    user = get_user(
+        user_id=user_id,
+        chat_id=chat_id,
     )
+
+    if not user:
+        return 0
+
+    last_meow = user["last_meow"]
 
     if not last_meow:
         return 0
 
-    elapsed = time.time() - last_meow
-
-    remaining = MEOW_COOLDOWN - elapsed
+    remaining = MEOW_COOLDOWN - (
+        time.time() - float(last_meow)
+    )
 
     if remaining <= 0:
         return 0
@@ -127,122 +166,96 @@ def get_remaining_cooldown(user_id, chat_id):
 
 
 # ==========================================
-# Register Meow
+# 🐾 Register Meow
 # ==========================================
 
 def register_meow(
     user_id,
     chat_id,
     first_name="",
-    username=""
+    username="",
 ):
-    """
-    ثبت یک میو.
-
-    هر میو بین 1 تا 30 Meow Point
-    به صورت تصادفی به کاربر می‌دهد.
-    """
-
-    # --------------------------------------
-    # User
-    # --------------------------------------
+    user_id = int(user_id)
+    chat_id = str(chat_id)
 
     user = get_user(
-        user_id,
-        chat_id
+        user_id=user_id,
+        chat_id=chat_id,
     )
 
+    # اگر کاربر وجود نداشت
     if not user:
         create_user(
             user_id=user_id,
             chat_id=chat_id,
             first_name=first_name,
-            username=username
+            username=username,
+        )
+
+        user = get_user(
+            user_id=user_id,
+            chat_id=chat_id,
         )
 
     # --------------------------------------
-    # Cooldown
+    # بررسی Cooldown
     # --------------------------------------
 
     remaining = get_remaining_cooldown(
-        user_id,
-        chat_id
+        user_id=user_id,
+        chat_id=chat_id,
     )
 
     if remaining > 0:
         return {
             "success": False,
+            "reason": "cooldown",
             "remaining": remaining,
             "points": 0,
-            "earned": 0
         }
 
     # --------------------------------------
-    # Random Meow Points
+    # دریافت Meow Point
     # --------------------------------------
 
-    earned_points = random.randint(1, 30)
+    points = random.randint(1, 30)
+
+    current_points = int(user["meow_points"] or 0)
+
+    current_coins = int(user["meow_coins"] or 0)
+
+    gym_level = int(user["gym_level"] or 1)
 
     # --------------------------------------
-    # Add Points
+    # ذخیره
     # --------------------------------------
 
-    add_meow_points(
-        user_id,
-        chat_id,
-        amount=earned_points
+    update_user(
+        user_id=user_id,
+        chat_id=chat_id,
+        first_name=first_name or user["first_name"],
+        username=username or user["username"],
+        meow_points=current_points + points,
+        meow_coins=current_coins,
+        gym_level=gym_level,
+        last_meow=time.time(),
     )
-
-    # --------------------------------------
-    # Update Last Meow
-    # --------------------------------------
-
-    now = time.time()
-
-    set_last_meow(
-        user_id,
-        chat_id,
-        now
-    )
-
-    # --------------------------------------
-    # Current Points
-    # --------------------------------------
-
-    user = get_user(
-        user_id,
-        chat_id
-    )
-
-    points = int(
-        user["meow_points"]
-    )
-
-    # --------------------------------------
-    # Result
-    # --------------------------------------
 
     return {
         "success": True,
-        "remaining": 0,
+        "reason": "meow",
         "points": points,
-        "earned": earned_points
+        "total_points": current_points + points,
+        "remaining": 0,
     }
 
 
 # ==========================================
-# Cooldown Formatter
+# ⏱ Cooldown Formatter
 # ==========================================
 
 def format_cooldown(seconds):
-    """
-    تبدیل ثانیه به متن خوانا.
-    """
-
-    seconds = max(
-        0,
-        int(seconds)
-    )
+    seconds = max(0, int(seconds))
 
     minutes = seconds // 60
     seconds = seconds % 60
