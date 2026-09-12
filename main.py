@@ -46,6 +46,12 @@ from coins import (
     transfer_coins,
 )
 
+# 🆕 Guide System
+from guide import (
+    is_guide_command,
+    get_guide,
+)
+
 
 # ==========================================
 # Database
@@ -104,6 +110,10 @@ async def on_ready():
 
     print(
         "📢 Broadcast System: ON"
+    )
+
+    print(
+        "📖 Guide System: ON"
     )
 
     print("=" * 55)
@@ -185,6 +195,19 @@ async def on_message(message: Message):
     )
 
     normalized_text = text.lower()
+
+
+    # ======================================
+    # 📖 Guide
+    # ======================================
+
+    if is_guide_command(text):
+
+        await message.reply(
+            get_guide()
+        )
+
+        return
 
 
     # ======================================
@@ -344,7 +367,6 @@ async def on_message(message: Message):
 
         broadcast_text = text[len("همگانی"):].strip()
 
-        # اگر متن داخل کوتیشن باشد
         if (
             len(broadcast_text) >= 2
             and broadcast_text[0] in {'"', "«", "'"}
