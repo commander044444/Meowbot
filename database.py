@@ -99,6 +99,41 @@ def init_database():
         )
     """)
 
+    # ------------------------------------------------------------------
+    # Pets table (Pet Meow system)
+    # ------------------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pets (
+            user_id INTEGER PRIMARY KEY,
+
+            pet_name TEXT DEFAULT '',
+            level INTEGER DEFAULT 1,
+            xp INTEGER DEFAULT 0,
+            relationship INTEGER DEFAULT 50,
+            hunger INTEGER DEFAULT 80,
+            energy INTEGER DEFAULT 80,
+
+            is_sleeping INTEGER DEFAULT 0,
+            sleep_until REAL DEFAULT 0,
+
+            games_played INTEGER DEFAULT 0,
+            foods_given INTEGER DEFAULT 0,
+            gifts_received INTEGER DEFAULT 0,
+
+            last_feed REAL DEFAULT 0,
+            last_play REAL DEFAULT 0,
+            last_pet REAL DEFAULT 0,
+            last_sleep REAL DEFAULT 0,
+            last_gift REAL DEFAULT 0,
+            last_interaction REAL DEFAULT 0,
+            last_random REAL DEFAULT 0,
+
+            awaiting_name INTEGER DEFAULT 0,
+
+            created_at TEXT NOT NULL
+        )
+    """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS season_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -895,3 +930,112 @@ def reset_meow_points():
     cursor.execute("UPDATE users SET meow_points = 0")
     connection.commit()
     connection.close()
+
+
+# ==========================================
+# 🐱 Pet Meow Database
+# ==========================================
+
+def get_pet(user_id):
+    """Get pet for a user. Returns None if no pet."""
+    user_id = int(user_id)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT * FROM pets WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return row
+
+
+def create_pet(user_id, pet_name="", awaiting_name=1):
+    """
+    Create a new pet for user. Fails silently if already exists
+    (INSERT OR IGNORE). Returns the pet row.
+    """
+    user_id = int(user_id)
+    now = datetime.now().isoformat()
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO pets (
+            user_id, pet_name, level, xp,
+            relationship, hunger, energy,
+            is_sleeping, sleep_until,
+            games_played, foods_given, gifts_received,
+            last_feed, last_play, last_pet, last_sleep,
+            last_gift, last_interaction, last_random,
+            awaiting_name, created_at
+        ) VALUES (
+            ?, ?, 1, 0,
+            50, 80, 80,
+            0, 0,
+            0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0,
+            ?, ?
+        )
+    """, (
+        user_id,
+        pet_name or "",
+        int(awaiting_name),
+        now,
+    ))
+    connection.commit()
+    connection.close()
+    return get_pet(user_id)
+
+
+def update_pet(user_id, **fields):
+    """
+    Update arbitrary pet fields.
+    Only known columns are applied.
+    """
+    user_id = int(user_id)
+    if not fields:
+        return get_pet(user_id)
+
+    allowed = {
+        "pet_name", "level", "xp", "relationship", "hunger", "energy",
+        "is_sleeping", "sleep_until",
+        "games_played", "foods_given", "gifts_received",
+        "last_feed", "last_play", "last_pet", "last_sleep",
+        "last_gift", "last_interaction", "last_random",
+        "awaiting_name",
+    }
+
+    sets = []
+    values = []
+    for key, value in fields.items():
+        if key not in allowed:
+            continue
+        sets.append(f"{key} = ?")
+        values.append(value)
+
+    if not sets:
+        return get_pet(user_id)
+
+    values.append(user_id)
+    sql = f"UPDATE pets SET {', '.join(sets)} WHERE user_id = ?"
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(sql, values)
+    connection.commit()
+    connection.close()
+    return get_pet(user_id)
+
+
+def delete_pet(user_id):
+    user_id = int(user_id)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM pets WHERE user_id = ?", (user_id,))
+    connection.commit()
+    connection.close()
+
+
+def pet_exists(user_id):
+    return get_pet(user_id) is not None

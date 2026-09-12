@@ -52,6 +52,43 @@ RANKING_LIMIT = 30
 
 
 # ------------------------------------------
+# 🐱 Pet Meow Settings
+# ------------------------------------------
+
+# Cooldownها (ثانیه)
+PET_FEED_COOLDOWN = 60
+PET_PLAY_COOLDOWN = 90
+PET_PET_COOLDOWN = 30
+PET_SLEEP_COOLDOWN = 180
+PET_GIFT_COOLDOWN = 300
+
+# مقدار تغییر آمار
+PET_FEED_HUNGER = 20
+PET_PLAY_ENERGY_COST = 15
+PET_PLAY_RELATIONSHIP = 8
+PET_PET_RELATIONSHIP = 5
+PET_SLEEP_ENERGY = 40
+
+# XP
+PET_XP_FEED = 5
+PET_XP_PLAY = 8
+PET_XP_PET = 3
+PET_XP_GIFT = 10
+PET_XP_PER_LEVEL = 25
+
+# حدود
+PET_STAT_MAX = 100
+PET_STAT_MIN = 0
+PET_MAX_LEVEL = 50
+
+# خواب پیش‌فرض (ثانیه)
+PET_SLEEP_DURATION = 120
+
+# شانس هدیه تصادفی هنگام تعامل (۰ تا ۱)
+PET_GIFT_CHANCE_BASE = 0.12
+
+
+# ------------------------------------------
 # Database
 # ------------------------------------------
 

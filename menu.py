@@ -13,6 +13,7 @@ from profile import format_profile
 
 CB_MAIN = "menu:main"
 CB_PROFILE = "menu:profile"
+CB_PET = "pet:home"
 CB_ABOUT = "menu:about"
 CB_ADD_GROUP = "menu:add_group"
 CB_GUIDE = "menu:guide"
@@ -66,6 +67,10 @@ GUIDE_MENU_TEXT = (
     "👤 پروفایل:\n"
     "مشاهده اطلاعات، موجودی و آمار خودت.\n"
     "\n"
+    "🐱 Pet Meow:\n"
+    "در چت خصوصی ربات یک گربه مجازی بساز، غذا بده، "
+    "بازی کن و رابطه‌ات را بالا ببر.\n"
+    "\n"
     "🐾 میو:\n"
     "در گروه بنویس «میو». هر ۵ دقیقه یک بار می‌تونی میو کنی "
     "و Meow Point بگیری.\n"
@@ -98,16 +103,20 @@ def main_menu_keyboard():
         row=1,
     )
     markup.add(
-        InlineKeyboardButton(text="ℹ️ درباره ما", callback_data=CB_ABOUT),
+        InlineKeyboardButton(text="🐱 Pet Meow", callback_data=CB_PET),
         row=1,
     )
     markup.add(
-        InlineKeyboardButton(text="➕ افزودن ربات به گروه", callback_data=CB_ADD_GROUP),
+        InlineKeyboardButton(text="ℹ️ درباره ما", callback_data=CB_ABOUT),
         row=2,
     )
     markup.add(
-        InlineKeyboardButton(text="📖 آموزش", callback_data=CB_GUIDE),
+        InlineKeyboardButton(text="➕ افزودن ربات به گروه", callback_data=CB_ADD_GROUP),
         row=3,
+    )
+    markup.add(
+        InlineKeyboardButton(text="📖 آموزش", callback_data=CB_GUIDE),
+        row=4,
     )
     return markup
 

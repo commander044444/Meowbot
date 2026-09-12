@@ -62,6 +62,16 @@ from menu import (
     get_menu_page,
 )
 
+from pet import (
+    is_pet_callback,
+    is_private_chat,
+    handle_pet_callback,
+    try_handle_pet_name_input,
+    try_call_pet,
+    try_random_behavior,
+    get_or_prompt_pet,
+)
+
 
 # ==========================================
 # Database
@@ -124,6 +134,10 @@ async def on_ready():
 
     print(
         "📖 Guide System: ON"
+    )
+
+    print(
+        "🐱 Pet Meow System: ON"
     )
 
     print("=" * 55)
@@ -242,6 +256,8 @@ async def on_message(message: Message):
 
     normalized_text = text.lower()
 
+    private_chat = is_private_chat(chat)
+
 
     # ======================================
     # 🐱 Start / Main Menu
@@ -255,6 +271,59 @@ async def on_message(message: Message):
         )
 
         return
+
+
+    # ======================================
+    # 🐱 Pet Meow — نام‌گذاری / صدا زدن
+    # ======================================
+
+    # نام‌گذاری فقط در PV
+    if private_chat:
+
+        name_text, name_kb = try_handle_pet_name_input(
+            user_id=user_id,
+            text=text,
+        )
+
+        if name_text is not None:
+
+            if name_kb is not None:
+                await message.reply(
+                    name_text,
+                    components=name_kb,
+                )
+            else:
+                await message.reply(name_text)
+
+            return
+
+    # صدا زدن Pet (PV و گروه — کوتاه)
+    call_reply = try_call_pet(
+        user_id=user_id,
+        text=text,
+        in_group=not private_chat,
+    )
+
+    if call_reply:
+
+        await message.reply(call_reply)
+        return
+
+    # رفتار تصادفی فقط در PV (کم‌تکرار) — غیرمسدودکننده
+    if private_chat:
+
+        random_msg = try_random_behavior(
+            user_id=user_id,
+            in_group=False,
+        )
+
+        if random_msg:
+            try:
+                await message.reply(random_msg)
+            except Exception:
+                pass
+            # ادامه نده تا پیام عادی کاربر دوباره پردازش نشود
+            return
 
 
     # ======================================
@@ -1147,10 +1216,70 @@ async def on_callback(callback: CallbackQuery):
     except Exception:
         pass
 
-    if not is_menu_callback(data):
+    if not user:
         return
 
-    if not user:
+    user_id = getattr(user, "id", None)
+    if user_id is None:
+        return
+
+    first_name = getattr(user, "first_name", None) or ""
+    username = getattr(user, "username", None) or ""
+
+    # --------------------------------------
+    # Pet callbacks
+    # --------------------------------------
+    if is_pet_callback(data):
+
+        text, keyboard = handle_pet_callback(
+            data=data,
+            user_id=user_id,
+            first_name=first_name,
+            username=username,
+        )
+
+        if not cb_message:
+            return
+
+        try:
+            if hasattr(cb_message, "edit"):
+                await cb_message.edit(
+                    text,
+                    components=keyboard
+                )
+            elif hasattr(cb_message, "edit_text"):
+                await cb_message.edit_text(
+                    text,
+                    components=keyboard
+                )
+            else:
+                await bot.send_message(
+                    getattr(cb_message.chat, "id", user_id),
+                    text,
+                    components=keyboard
+                )
+        except Exception as e:
+            print(f"❌ Pet callback edit failed: {e}")
+            try:
+                chat_id = getattr(
+                    getattr(cb_message, "chat", None), "id", None
+                )
+                if chat_id is None:
+                    chat_id = user_id
+                await bot.send_message(
+                    chat_id,
+                    text,
+                    components=keyboard
+                )
+            except Exception as send_error:
+                print(f"❌ Pet callback send failed: {send_error}")
+
+        return
+
+    # --------------------------------------
+    # Main menu callbacks
+    # --------------------------------------
+    if not is_menu_callback(data):
         return
 
     text, keyboard = get_menu_page(data, user)
