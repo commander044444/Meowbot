@@ -26,6 +26,10 @@ def init_database():
     connection = get_connection()
     cursor = connection.cursor()
 
+    # ======================================
+    # Users
+    # ======================================
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER NOT NULL,
@@ -47,6 +51,26 @@ def init_database():
         )
     """)
 
+    # ======================================
+    # Groups
+    # ======================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            chat_id TEXT PRIMARY KEY,
+
+            title TEXT DEFAULT '',
+            username TEXT DEFAULT '',
+
+            created_at TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+        )
+    """)
+
+    # ======================================
+    # Seasons
+    # ======================================
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS seasons (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +83,10 @@ def init_database():
             active INTEGER DEFAULT 1
         )
     """)
+
+    # ======================================
+    # Season Results
+    # ======================================
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS season_results (
@@ -79,6 +107,149 @@ def init_database():
 
     connection.commit()
     connection.close()
+
+
+# ==========================================
+# Group Management
+# ==========================================
+
+def register_group(
+    chat_id,
+    title="",
+    username=""
+):
+    """
+    ثبت یا بروزرسانی یک گروه.
+
+    هر بار که ربات در گروه پیامی دریافت کند،
+    اطلاعات گروه ثبت و last_seen بروزرسانی می‌شود.
+    """
+
+    if chat_id is None:
+        return
+
+    chat_id = str(chat_id)
+
+    now = datetime.now().isoformat()
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        INSERT INTO groups (
+            chat_id,
+            title,
+            username,
+            created_at,
+            last_seen
+        )
+        VALUES (?, ?, ?, ?, ?)
+
+        ON CONFLICT(chat_id)
+        DO UPDATE SET
+            title = excluded.title,
+            username = excluded.username,
+            last_seen = excluded.last_seen
+    """, (
+        chat_id,
+        title or "",
+        username or "",
+        now,
+        now
+    ))
+
+    connection.commit()
+    connection.close()
+
+
+def get_all_groups():
+    """
+    دریافت تمام گروه‌های ثبت‌شده.
+
+    خروجی:
+        list[sqlite3.Row]
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM groups
+        ORDER BY created_at ASC
+    """)
+
+    groups = cursor.fetchall()
+
+    connection.close()
+
+    return groups
+
+
+def get_group(chat_id):
+    """
+    دریافت اطلاعات یک گروه.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM groups
+        WHERE chat_id = ?
+    """, (
+        str(chat_id),
+    ))
+
+    group = cursor.fetchone()
+
+    connection.close()
+
+    return group
+
+
+def remove_group(chat_id):
+    """
+    حذف یک گروه از لیست Broadcast.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        DELETE FROM groups
+        WHERE chat_id = ?
+    """, (
+        str(chat_id),
+    ))
+
+    deleted = cursor.rowcount > 0
+
+    connection.commit()
+    connection.close()
+
+    return deleted
+
+
+def get_group_count():
+    """
+    تعداد گروه‌های ثبت‌شده.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) AS count
+        FROM groups
+    """)
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    return int(result["count"])
 
 
 # ==========================================
@@ -183,9 +354,6 @@ def update_user(
 ):
     """
     بروزرسانی کامل اطلاعات کاربر.
-
-    این تابع برای سازگاری با Meow System
-    و سایر بخش‌های قدیمی ربات نگه داشته شده است.
     """
 
     connection = get_connection()
@@ -312,9 +480,6 @@ def add_meow_points_to_all(chat_id, amount):
     """
     به تمام کاربران ثبت‌شده یک گروه
     مقدار مشخصی Meow Point اضافه می‌کند.
-
-    خروجی:
-        تعداد کاربران تغییر داده‌شده
     """
 
     amount = int(amount)
@@ -396,9 +561,6 @@ def add_meow_coins_to_all(chat_id, amount):
     """
     به تمام کاربران ثبت‌شده یک گروه
     مقدار مشخصی Meow Coin اضافه می‌کند.
-
-    خروجی:
-        تعداد کاربران تغییر داده‌شده
     """
 
     amount = int(amount)
