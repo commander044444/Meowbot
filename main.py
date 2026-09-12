@@ -2,7 +2,7 @@
 # 🐱 MeowBot - Main
 # ==========================================
 
-from bale import Bot, Message
+from bale import Bot, Message, CallbackQuery
 
 from config import (
     BOT_TOKEN,
@@ -51,6 +51,14 @@ from coins import (
 from guide import (
     is_guide_command,
     get_guide,
+)
+
+from menu import (
+    is_start_command,
+    is_menu_callback,
+    WELCOME_TEXT,
+    main_menu_keyboard,
+    get_menu_page,
 )
 
 
@@ -232,6 +240,20 @@ async def on_message(message: Message):
     )
 
     normalized_text = text.lower()
+
+
+    # ======================================
+    # 🐱 Start / Main Menu
+    # ======================================
+
+    if is_start_command(text):
+
+        await message.reply(
+            WELCOME_TEXT,
+            components=main_menu_keyboard()
+        )
+
+        return
 
 
     # ======================================
@@ -1085,6 +1107,66 @@ async def on_message(message: Message):
         f"🌸 مجموع Meow Point: {points}\n"
         "💗 میوی بعدی: ۵ دقیقه دیگه"
     )
+
+
+# ==========================================
+# Callback Queries (Main Menu)
+# ==========================================
+
+@bot.event
+async def on_callback(callback: CallbackQuery):
+
+    data = getattr(callback, "data", None)
+    user = getattr(callback, "from_user", None) or getattr(callback, "user", None)
+    cb_message = getattr(callback, "message", None)
+
+    try:
+        if hasattr(callback, "answer"):
+            await callback.answer()
+    except Exception:
+        pass
+
+    if not is_menu_callback(data):
+        return
+
+    if not user:
+        return
+
+    text, keyboard = get_menu_page(data, user)
+
+    if not cb_message:
+        return
+
+    try:
+        if hasattr(cb_message, "edit"):
+            await cb_message.edit(
+                text,
+                components=keyboard
+            )
+        elif hasattr(cb_message, "edit_text"):
+            await cb_message.edit_text(
+                text,
+                components=keyboard
+            )
+        else:
+            await bot.send_message(
+                getattr(cb_message.chat, "id", user.id),
+                text,
+                components=keyboard
+            )
+    except Exception as e:
+        print(f"❌ Menu callback edit failed: {e}")
+        try:
+            chat_id = getattr(getattr(cb_message, "chat", None), "id", None)
+            if chat_id is None:
+                chat_id = user.id
+            await bot.send_message(
+                chat_id,
+                text,
+                components=keyboard
+            )
+        except Exception as send_error:
+            print(f"❌ Menu callback send failed: {send_error}")
 
 
 # ==========================================
