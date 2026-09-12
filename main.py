@@ -37,6 +37,7 @@ from ranking import (
 
 from battle import (
     start_battle,
+    format_battle_cooldown,
 )
 
 from profile import (
@@ -834,6 +835,26 @@ async def on_message(message: Message):
 
                 await message.reply(
                     "😂🐱 نمی‌تونی با خودت بجنگی!"
+                )
+
+                return
+
+            if result.get(
+                "reason"
+            ) == "cooldown":
+
+                remaining_text = format_battle_cooldown(
+                    result["remaining"]
+                )
+                cooldown_msg = result.get(
+                    "message",
+                    "🐱 هنوز خیلی خسته‌ای! یه کم استراحت کن 😴"
+                )
+
+                await message.reply(
+                    f"{cooldown_msg}\n\n"
+                    f"⏳ زمان باقی‌مانده:\n"
+                    f"{remaining_text}"
                 )
 
                 return

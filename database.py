@@ -48,10 +48,19 @@ def init_database():
             gym_level INTEGER DEFAULT 1,
 
             last_meow REAL DEFAULT 0,
+            last_battle REAL DEFAULT 0,
 
             created_at TEXT NOT NULL
         )
     """)
+
+    # Safe add last_battle column if missing (for existing databases)
+    cursor.execute("PRAGMA table_info(users)")
+    existing_columns = [c["name"] for c in cursor.fetchall()]
+    if "last_battle" not in existing_columns:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN last_battle REAL DEFAULT 0"
+        )
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS groups (
@@ -170,6 +179,7 @@ def _migrate_to_global_accounts(connection, cursor):
             gym_level INTEGER DEFAULT 1,
 
             last_meow REAL DEFAULT 0,
+            last_battle REAL DEFAULT 0,
 
             created_at TEXT NOT NULL
         )
@@ -227,8 +237,8 @@ def _migrate_to_global_accounts(connection, cursor):
             INSERT OR REPLACE INTO users (
                 user_id, first_name, username,
                 meow_points, meow_coins, gym_level,
-                last_meow, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                last_meow, last_battle, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             user_id,
             first_name,
@@ -237,6 +247,7 @@ def _migrate_to_global_accounts(connection, cursor):
             best_coins,
             best_gym,
             best_last_meow,
+            0,
             created_at
         ))
 
@@ -421,9 +432,9 @@ def create_user(user_id, chat_id=None, first_name="", username=""):
         INSERT OR IGNORE INTO users (
             user_id, first_name, username,
             meow_points, meow_coins, gym_level,
-            last_meow, created_at
+            last_meow, last_battle, created_at
         )
-        VALUES (?, ?, ?, 0, 0, 1, 0, ?)
+        VALUES (?, ?, ?, 0, 0, 1, 0, 0, ?)
     """, (
         user_id,
         first_name or "",
@@ -752,6 +763,40 @@ def get_last_meow(user_id, chat_id=None):
     if not user:
         return 0
     return float(user["last_meow"])
+
+
+# ==========================================
+# Last Battle (Global cooldown)
+# ==========================================
+
+def set_last_battle(user_id, chat_id=None, timestamp=0):
+    user_id = int(user_id)
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET last_battle = ?
+        WHERE user_id = ?
+    """, (float(timestamp), user_id))
+
+    connection.commit()
+    connection.close()
+
+    if chat_id is not None:
+        ensure_group_membership(user_id, chat_id)
+
+
+def get_last_battle(user_id, chat_id=None):
+    user = get_user(user_id, chat_id)
+    if not user:
+        return 0
+    # Support older DBs that might not have the column yet
+    try:
+        return float(user["last_battle"] or 0)
+    except (KeyError, IndexError, TypeError):
+        return 0
 
 
 # ==========================================

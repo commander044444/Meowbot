@@ -38,6 +38,9 @@ ALLOWED_GROUP = [
 # هر ۵ دقیقه یک بار امکان میو کردن
 MEOW_COOLDOWN = 5 * 60
 
+# Cooldown جنگ میویی (ثانیه) — پیش‌فرض ۱۰ دقیقه
+BATTLE_COOLDOWN = 600
+
 # مدت هر فصل
 SEASON_DAYS = 30
 

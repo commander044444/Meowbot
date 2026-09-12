@@ -3,12 +3,19 @@
 # ==========================================
 
 import random
+import time
+
+from config import (
+    BATTLE_COOLDOWN,
+)
 
 from database import (
     create_user,
     get_user,
     get_gym_level,
     add_meow_coins,
+    get_last_battle,
+    set_last_battle,
 )
 
 
@@ -18,6 +25,22 @@ from database import (
 
 WIN_REWARD = 20
 LOSE_REWARD = 5
+
+
+# ==========================================
+# Cooldown Messages (قابل گسترش)
+# ==========================================
+
+BATTLE_COOLDOWN_MESSAGES = [
+    "🐱 هنوز خیلی خسته‌ای! یه کم استراحت کن 😴",
+    "😼 گربه‌ات هنوز داره نفس می‌گیره... یه کم صبر کن!",
+    "💤 هنوز ۹ تا جون دیگه لازم داری! بعداً برگرد 😂",
+    "🐾 پنجه‌هات هنوز آماده نیستن! کمی صبر کن.",
+    "😹 آروم باش فرمانده! جنگ قبلی هنوز یادت نرفته 😹",
+    "⚡ انرژی جنگی در حال شارژه...",
+    "🔥 هنوز وقت نبرد بعدی نرسیده!",
+    "😴 MeowBot میگه: استراحت کن جنگجو!",
+]
 
 
 # ==========================================
@@ -70,6 +93,50 @@ def calculate_battle(
 
 
 # ==========================================
+# Cooldown Helpers
+# ==========================================
+
+def get_battle_remaining_cooldown(user_id, chat_id=None):
+    """
+    زمان باقی‌مانده Cooldown جنگ برای کاربر (ثانیه).
+    اگر Cooldown تمام شده باشد ۰ برمی‌گرداند.
+    """
+    last_battle = get_last_battle(user_id, chat_id)
+
+    if not last_battle:
+        return 0
+
+    remaining = BATTLE_COOLDOWN - (
+        time.time() - float(last_battle)
+    )
+
+    if remaining <= 0:
+        return 0
+
+    return int(remaining)
+
+
+def format_battle_cooldown(seconds):
+    """
+    فرمت خوانا برای زمان باقی‌مانده.
+    مثال: 7 دقیقه و 24 ثانیه
+    """
+    seconds = max(0, int(seconds))
+
+    minutes = seconds // 60
+    secs = seconds % 60
+
+    if minutes > 0:
+        return f"{minutes} دقیقه و {secs} ثانیه"
+
+    return f"{secs} ثانیه"
+
+
+def get_random_cooldown_message():
+    return random.choice(BATTLE_COOLDOWN_MESSAGES)
+
+
+# ==========================================
 # Start Battle
 # ==========================================
 
@@ -91,6 +158,24 @@ def start_battle(
         return {
             "success": False,
             "reason": "self_battle",
+        }
+
+    # --------------------------------------
+    # Cooldown Check (قبل از هر عملیات)
+    # --------------------------------------
+
+    remaining = get_battle_remaining_cooldown(
+        user_id=attacker_id,
+        chat_id=chat_id,
+    )
+
+    if remaining > 0:
+
+        return {
+            "success": False,
+            "reason": "cooldown",
+            "remaining": remaining,
+            "message": get_random_cooldown_message(),
         }
 
     # --------------------------------------
@@ -187,6 +272,16 @@ def start_battle(
         user_id=loser_id,
         chat_id=chat_id,
         amount=LOSE_REWARD
+    )
+
+    # --------------------------------------
+    # ثبت زمان آخرین جنگ موفق (فقط بعد از موفقیت)
+    # --------------------------------------
+
+    set_last_battle(
+        user_id=attacker_id,
+        chat_id=chat_id,
+        timestamp=time.time(),
     )
 
     # --------------------------------------
