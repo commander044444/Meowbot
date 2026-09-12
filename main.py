@@ -46,7 +46,6 @@ from coins import (
     transfer_coins,
 )
 
-# 🆕 Guide System
 from guide import (
     is_guide_command,
     get_guide,
@@ -295,6 +294,7 @@ async def on_message(message: Message):
 
             return
 
+
         # ----------------------------------
         # Meow Coin
         # ----------------------------------
@@ -361,6 +361,7 @@ async def on_message(message: Message):
 
             return
 
+
         # ----------------------------------
         # Text Broadcast
         # ----------------------------------
@@ -384,8 +385,37 @@ async def on_message(message: Message):
 
             return
 
+
+        # ----------------------------------
+        # Send To All Groups
+        # ----------------------------------
+
+        sent = 0
+
+        for group in ALLOWED_GROUP:
+
+            try:
+
+                await bot.send_message(
+                    group,
+                    broadcast_text
+                )
+
+                sent += 1
+
+            except Exception as e:
+
+                print(
+                    f"❌ Broadcast failed for {group}: {e}"
+                )
+
+
         await message.reply(
-            broadcast_text
+            "📢🐱 همگانی ارسال شد!\n\n"
+            "━━━━━━━━━━━━━━\n"
+            f"👥 گروه‌های دریافت‌کننده: {sent}\n"
+            f"📋 گروه‌های تنظیم‌شده: {len(ALLOWED_GROUP)}\n"
+            "━━━━━━━━━━━━━━"
         )
 
         return
