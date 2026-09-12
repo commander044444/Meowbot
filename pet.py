@@ -57,6 +57,7 @@ CB_PET_PET = "pet:pet"
 CB_PET_SLEEP = "pet:sleep"
 CB_PET_GIFT = "pet:gift"
 CB_PET_STATUS = "pet:status"
+CB_PET_RENAME = "pet:rename"
 CB_PET_BACK_MENU = "menu:main"
 
 
@@ -286,8 +287,12 @@ def pet_home_keyboard():
         row=3,
     )
     markup.add(
-        InlineKeyboardButton(text="🔙 بازگشت", callback_data=CB_PET_BACK_MENU),
+        InlineKeyboardButton(text="✏️ تغییر اسم", callback_data=CB_PET_RENAME),
         row=4,
+    )
+    markup.add(
+        InlineKeyboardButton(text="🔙 بازگشت", callback_data=CB_PET_BACK_MENU),
+        row=5,
     )
     return markup
 
@@ -395,7 +400,14 @@ def no_pet_text():
     )
 
 
-def naming_prompt_text():
+def naming_prompt_text(is_rename=False):
+    if is_rename:
+        return (
+            "✏️ اسم جدید پیشیت رو بفرست!\n"
+            "\n"
+            "فقط اسم رو بنویس (مثلاً: Milo یا میلو)\n"
+            "حداکثر ۲۴ حرف."
+        )
     return (
         "🐱 اسم پیشیت رو انتخاب کن!\n"
         "\n"
@@ -407,9 +419,10 @@ def naming_prompt_text():
 # Actions
 # ------------------------------------------
 
-def get_or_prompt_pet(user_id):
+def get_or_prompt_pet(user_id, cancel_rename=False):
     """
     Returns (text, keyboard, pet_or_None).
+    If cancel_rename=True and pet already has a name, clears awaiting_name.
     """
     pet = get_pet(user_id)
     if not pet:
@@ -417,8 +430,16 @@ def get_or_prompt_pet(user_id):
 
     pet = ensure_awake(pet)
 
-    if int(pet["awaiting_name"] or 0) == 1 and not (pet["pet_name"] or "").strip():
-        return naming_prompt_text(), back_to_pet_keyboard(), pet
+    has_name = bool((pet["pet_name"] or "").strip())
+    awaiting = int(pet["awaiting_name"] or 0) == 1
+
+    # Cancel rename if user navigated back to home while renaming
+    if cancel_rename and awaiting and has_name:
+        pet = update_pet(user_id, awaiting_name=0)
+        awaiting = False
+
+    if awaiting:
+        return naming_prompt_text(is_rename=has_name), back_to_pet_keyboard(), pet
 
     return format_pet_home(pet), pet_home_keyboard(), pet
 
@@ -455,6 +476,9 @@ def action_set_name(user_id, name):
     if int(pet["awaiting_name"] or 0) != 1:
         return None, None  # not in naming mode
 
+    old_name = (pet["pet_name"] or "").strip()
+    is_rename = bool(old_name)
+
     update_pet(
         user_id,
         pet_name=name,
@@ -462,12 +486,44 @@ def action_set_name(user_id, name):
         last_interaction=time.time(),
     )
     pet = get_pet(user_id)
-    text = (
-        f"🎉 پیشی با اسم «{name}» ساخته شد!\n"
-        f"\n"
-        f"{format_pet_home(pet)}"
-    )
+
+    if is_rename:
+        text = (
+            f"✅ اسم پیشی از «{old_name}» به «{name}» تغییر کرد!\n"
+            f"\n"
+            f"{format_pet_home(pet)}"
+        )
+    else:
+        text = (
+            f"🎉 پیشی با اسم «{name}» ساخته شد!\n"
+            f"\n"
+            f"{format_pet_home(pet)}"
+        )
     return text, pet_home_keyboard()
+
+
+def action_rename(user_id):
+    """Start rename flow: set awaiting_name and show prompt."""
+    pet = get_pet(user_id)
+    if not pet:
+        return no_pet_text(), no_pet_keyboard()
+
+    pet = ensure_awake(pet)
+    name = (pet["pet_name"] or "").strip()
+
+    if not name:
+        # Still in first-time naming
+        update_pet(user_id, awaiting_name=1)
+        return naming_prompt_text(is_rename=False), back_to_pet_keyboard()
+
+    if is_pet_sleeping(pet):
+        return (
+            f"💤 {name} خوابیده... بعد از بیدار شدن اسمش رو عوض کن.",
+            back_to_pet_keyboard(),
+        )
+
+    update_pet(user_id, awaiting_name=1, last_interaction=time.time())
+    return naming_prompt_text(is_rename=True), back_to_pet_keyboard()
 
 
 def action_feed(user_id):
@@ -865,7 +921,8 @@ def handle_pet_callback(data, user_id, first_name="", username=""):
     data = str(data or "")
 
     if data == CB_PET_HOME:
-        return get_or_prompt_pet(user_id)[:2]
+        # Returning to home cancels an in-progress rename
+        return get_or_prompt_pet(user_id, cancel_rename=True)[:2]
 
     if data == CB_PET_CREATE:
         return action_create_pet(user_id, first_name, username)
@@ -896,6 +953,9 @@ def handle_pet_callback(data, user_id, first_name="", username=""):
 
     if data == CB_PET_STATUS:
         return action_status(user_id)
+
+    if data == CB_PET_RENAME:
+        return action_rename(user_id)
 
     # Fallback
     return get_or_prompt_pet(user_id)[:2]
