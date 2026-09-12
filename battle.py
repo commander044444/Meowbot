@@ -1,5 +1,5 @@
 # ==========================================
-# 🐱 MeowBot - Battle System
+# 🐱 MeowBot - Battle System (Global Account)
 # ==========================================
 
 import random
@@ -94,22 +94,10 @@ def start_battle(
         }
 
     # --------------------------------------
-    # Chat ID
+    # Create Users (global)
     # --------------------------------------
 
-    if chat_id is None:
-        chat_id = "global"
-
-    chat_id = str(chat_id)
-
-    # --------------------------------------
-    # Create Users
-    # --------------------------------------
-
-    attacker = get_user(
-        attacker_id,
-        chat_id
-    )
+    attacker = get_user(attacker_id, chat_id)
 
     if not attacker:
 
@@ -120,15 +108,9 @@ def start_battle(
             username=""
         )
 
-        attacker = get_user(
-            attacker_id,
-            chat_id
-        )
+        attacker = get_user(attacker_id, chat_id)
 
-    defender = get_user(
-        defender_id,
-        chat_id
-    )
+    defender = get_user(defender_id, chat_id)
 
     if not defender:
 
@@ -139,10 +121,7 @@ def start_battle(
             username=""
         )
 
-        defender = get_user(
-            defender_id,
-            chat_id
-        )
+        defender = get_user(defender_id, chat_id)
 
     # --------------------------------------
     # Names
@@ -159,18 +138,11 @@ def start_battle(
     )
 
     # --------------------------------------
-    # Gym Levels
+    # Gym Levels (Global)
     # --------------------------------------
 
-    attacker_level = get_gym_level(
-        attacker_id,
-        chat_id
-    )
-
-    defender_level = get_gym_level(
-        defender_id,
-        chat_id
-    )
+    attacker_level = get_gym_level(attacker_id, chat_id)
+    defender_level = get_gym_level(defender_id, chat_id)
 
     # --------------------------------------
     # Calculate
@@ -202,7 +174,7 @@ def start_battle(
         loser_name = attacker_name
 
     # --------------------------------------
-    # Rewards
+    # Rewards (Global coins)
     # --------------------------------------
 
     add_meow_coins(

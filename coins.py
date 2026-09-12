@@ -1,6 +1,11 @@
+# ==========================================
+# 🐱 MeowBot - Coins System (Global Account)
+# ==========================================
+
 import sqlite3
 
 from config import DATABASE_NAME
+from database import create_user, get_user, ensure_group_membership
 
 
 # ==========================================
@@ -8,7 +13,7 @@ from config import DATABASE_NAME
 # ==========================================
 
 def get_connection():
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(DATABASE_NAME, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -22,7 +27,7 @@ def validate_transfer(sender_id, receiver_id, chat_id, amount):
         sender_id = int(sender_id)
         receiver_id = int(receiver_id)
         amount = int(amount)
-        chat_id = str(chat_id)
+        chat_id = str(chat_id) if chat_id is not None else None
     except (TypeError, ValueError):
         return {
             "success": False,
@@ -48,18 +53,18 @@ def validate_transfer(sender_id, receiver_id, chat_id, amount):
             """
             SELECT meow_coins
             FROM users
-            WHERE user_id = ? AND chat_id = ?
+            WHERE user_id = ?
             """,
-            (sender_id, chat_id)
+            (sender_id,)
         ).fetchone()
 
         receiver = conn.execute(
             """
             SELECT user_id
             FROM users
-            WHERE user_id = ? AND chat_id = ?
+            WHERE user_id = ?
             """,
-            (receiver_id, chat_id)
+            (receiver_id,)
         ).fetchone()
 
         if not sender:
@@ -94,7 +99,7 @@ def validate_transfer(sender_id, receiver_id, chat_id, amount):
 
 
 # ==========================================
-# Transfer Coins
+# Transfer Coins (Global balances)
 # ==========================================
 
 def transfer_coins(sender_id, receiver_id, chat_id, amount):
@@ -102,7 +107,7 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
         sender_id = int(sender_id)
         receiver_id = int(receiver_id)
         amount = int(amount)
-        chat_id = str(chat_id)
+        chat_id = str(chat_id) if chat_id is not None else None
     except (TypeError, ValueError):
         return {
             "success": False,
@@ -124,14 +129,13 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
     try:
         conn.execute("BEGIN")
 
-        # دوباره موجودی فرستنده را داخل تراکنش چک می‌کنیم
         sender = conn.execute(
             """
             SELECT meow_coins
             FROM users
-            WHERE user_id = ? AND chat_id = ?
+            WHERE user_id = ?
             """,
-            (sender_id, chat_id)
+            (sender_id,)
         ).fetchone()
 
         if not sender:
@@ -151,21 +155,15 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
                 "sender_coins": sender_coins
             }
 
-        # کم کردن از فرستنده
+        # Deduct from sender
         cursor = conn.execute(
             """
             UPDATE users
             SET meow_coins = meow_coins - ?
             WHERE user_id = ?
-              AND chat_id = ?
               AND meow_coins >= ?
             """,
-            (
-                amount,
-                sender_id,
-                chat_id,
-                amount
-            )
+            (amount, sender_id, amount)
         )
 
         if cursor.rowcount != 1:
@@ -175,19 +173,14 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
                 "reason": "transfer_failed"
             }
 
-        # اضافه کردن به گیرنده
+        # Add to receiver
         cursor = conn.execute(
             """
             UPDATE users
             SET meow_coins = meow_coins + ?
             WHERE user_id = ?
-              AND chat_id = ?
             """,
-            (
-                amount,
-                receiver_id,
-                chat_id
-            )
+            (amount, receiver_id)
         )
 
         if cursor.rowcount != 1:
@@ -199,24 +192,28 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
 
         conn.commit()
 
-        # موجودی‌های جدید
         sender_after = conn.execute(
             """
             SELECT meow_coins
             FROM users
-            WHERE user_id = ? AND chat_id = ?
+            WHERE user_id = ?
             """,
-            (sender_id, chat_id)
+            (sender_id,)
         ).fetchone()
 
         receiver_after = conn.execute(
             """
             SELECT meow_coins
             FROM users
-            WHERE user_id = ? AND chat_id = ?
+            WHERE user_id = ?
             """,
-            (receiver_id, chat_id)
+            (receiver_id,)
         ).fetchone()
+
+        # Ensure membership for both if chat_id present
+        if chat_id is not None:
+            ensure_group_membership(sender_id, chat_id)
+            ensure_group_membership(receiver_id, chat_id)
 
         return {
             "success": True,
@@ -228,7 +225,6 @@ def transfer_coins(sender_id, receiver_id, chat_id, amount):
 
     except Exception:
         conn.rollback()
-
         return {
             "success": False,
             "reason": "database_error"

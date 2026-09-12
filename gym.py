@@ -1,5 +1,5 @@
 # ==========================================
-# 🐱 MeowBot - Meow Gym
+# 🐱 MeowBot - Meow Gym (Global Account)
 # ==========================================
 
 from config import MAX_GYM_LEVEL, DATABASE_NAME
@@ -9,6 +9,7 @@ from database import (
     get_user,
     get_meow_points,
     get_gym_level,
+    ensure_group_membership,
 )
 
 
@@ -44,14 +45,11 @@ def get_power(level):
 
 def get_gym_status(
     user_id,
-    chat_id,
+    chat_id=None,
     first_name="",
     username=""
 ):
-    user = get_user(
-        user_id,
-        chat_id
-    )
+    user = get_user(user_id, chat_id)
 
     if not user:
         create_user(
@@ -60,21 +58,10 @@ def get_gym_status(
             first_name=first_name,
             username=username
         )
+        user = get_user(user_id, chat_id)
 
-        user = get_user(
-            user_id,
-            chat_id
-        )
-
-    level = get_gym_level(
-        user_id,
-        chat_id
-    )
-
-    points = get_meow_points(
-        user_id,
-        chat_id
-    )
+    level = get_gym_level(user_id, chat_id)
+    points = get_meow_points(user_id, chat_id)
 
     cost = get_upgrade_cost(level)
     power = get_power(level)
@@ -89,36 +76,27 @@ def get_gym_status(
 
 
 # ==========================================
-# Upgrade Gym
+# Upgrade Gym (Global)
 # ==========================================
 
 def upgrade_gym(
     user_id,
-    chat_id,
+    chat_id=None,
     first_name="",
     username=""
 ):
     """
-    ارتقای باشگاه میویی
+    ارتقای باشگاه میویی (Global Account)
 
-    این نسخه:
     - موجودی را داخل همان تراکنش بررسی می‌کند.
     - Point را فقط در صورت کافی بودن کم می‌کند.
     - Level را فقط در صورت موفق بودن افزایش می‌دهد.
-    - جلوی ارتقای رایگان یا ارتقای بیشتر از موجودی را می‌گیرد.
     """
 
     user_id = int(user_id)
-    chat_id = str(chat_id)
 
-    # --------------------------------------
     # Make sure user exists
-    # --------------------------------------
-
-    user = get_user(
-        user_id,
-        chat_id
-    )
+    user = get_user(user_id, chat_id)
 
     if not user:
         create_user(
@@ -128,39 +106,25 @@ def upgrade_gym(
             username=username
         )
 
-    # --------------------------------------
-    # Atomic transaction
-    # --------------------------------------
-
     import sqlite3
 
-    connection = sqlite3.connect(
-        DATABASE_NAME
-    )
-
+    connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
     try:
-
-        # فقط همان کاربر و همان گروه
         cursor.execute(
             """
             SELECT meow_points, gym_level
             FROM users
             WHERE user_id = ?
-            AND chat_id = ?
             """,
-            (
-                user_id,
-                chat_id
-            )
+            (user_id,)
         )
 
         row = cursor.fetchone()
 
         if not row:
             connection.rollback()
-
             return {
                 "success": False,
                 "reason": "user_not_found",
@@ -174,14 +138,8 @@ def upgrade_gym(
         points = int(row[0])
         current_level = int(row[1])
 
-        # ----------------------------------
-        # Maximum Level
-        # ----------------------------------
-
         if current_level >= MAX_GYM_LEVEL:
-
             connection.rollback()
-
             return {
                 "success": False,
                 "reason": "max_level",
@@ -192,23 +150,10 @@ def upgrade_gym(
                 "power": get_power(current_level),
             }
 
-        # ----------------------------------
-        # Calculate cost
-        # ----------------------------------
-
-        cost = get_upgrade_cost(
-            current_level
-        )
-
-        # ----------------------------------
-        # IMPORTANT:
-        # Never allow negative balance
-        # ----------------------------------
+        cost = get_upgrade_cost(current_level)
 
         if points < cost:
-
             connection.rollback()
-
             return {
                 "success": False,
                 "reason": "not_enough_points",
@@ -219,10 +164,6 @@ def upgrade_gym(
                 "power": get_power(current_level),
             }
 
-        # ----------------------------------
-        # Atomic deduction
-        # ----------------------------------
-
         cursor.execute(
             """
             UPDATE users
@@ -230,27 +171,14 @@ def upgrade_gym(
                 meow_points = meow_points - ?,
                 gym_level = gym_level + 1
             WHERE user_id = ?
-            AND chat_id = ?
-            AND gym_level = ?
-            AND meow_points >= ?
+              AND gym_level = ?
+              AND meow_points >= ?
             """,
-            (
-                cost,
-                user_id,
-                chat_id,
-                current_level,
-                cost
-            )
+            (cost, user_id, current_level, cost)
         )
 
-        # ----------------------------------
-        # Safety check
-        # ----------------------------------
-
         if cursor.rowcount != 1:
-
             connection.rollback()
-
             return {
                 "success": False,
                 "reason": "upgrade_failed",
@@ -261,14 +189,13 @@ def upgrade_gym(
                 "power": get_power(current_level),
             }
 
-        # ----------------------------------
-        # Commit
-        # ----------------------------------
-
         connection.commit()
 
         new_level = current_level + 1
         new_points = points - cost
+
+        if chat_id is not None:
+            ensure_group_membership(user_id, chat_id)
 
         return {
             "success": True,
@@ -281,9 +208,7 @@ def upgrade_gym(
         }
 
     except Exception:
-
         connection.rollback()
-
         return {
             "success": False,
             "reason": "database_error",
@@ -295,5 +220,4 @@ def upgrade_gym(
         }
 
     finally:
-
         connection.close()
