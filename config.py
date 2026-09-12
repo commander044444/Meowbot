@@ -22,7 +22,7 @@ OWNER_ID = 1967315238
 # Allowed Group
 # ------------------------------------------
 
-ALLOWED_GROUP = "@testcmbot"
+ALLOWED_GROUP = "@lilililillilililililililili"
 
 
 # ------------------------------------------
