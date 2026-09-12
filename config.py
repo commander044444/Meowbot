@@ -19,10 +19,14 @@ OWNER_ID = 1967315238
 
 
 # ------------------------------------------
-# Allowed Group
+# Allowed Groups
 # ------------------------------------------
 
-ALLOWED_GROUP = "@lilililillilililililililili"
+# گپ‌هایی که MeowBot اجازه فعالیت داخل آن‌ها را دارد
+ALLOWED_GROUPS = [
+    "@testcmbot",
+    "@lilililillilililililililili",
+]
 
 
 # ------------------------------------------
