@@ -238,6 +238,21 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
         )
         y += h + gap
 
+    # واترمارک کوچک گوشه بالا-چپ
+    wm = "darkknightstudio"
+    wm_size = max(10, min(img.width, img.height) // 28)
+    wm_font = _load_font(wm_size)
+    wm_stroke = max(1, wm_size // 8)
+    pad = max(4, int(min(img.width, img.height) * 0.02))
+    draw.text(
+        (pad, pad),
+        wm,
+        font=wm_font,
+        fill=(255, 255, 255, 200),
+        stroke_width=wm_stroke,
+        stroke_fill=(0, 0, 0, 180),
+    )
+
     composed = Image.alpha_composite(img, overlay)
     # GIF palette
     return composed.convert("RGB")
