@@ -60,7 +60,7 @@ def _normalize_trigger(text):
 TRIGGERS = {
     "حقیقت": TYPE_TRUTH,
     "جرأت": TYPE_DARE,
-    "جرات": TYPE_DARE,
+    "جرعت": TYPE_DARE,
     "فکت": TYPE_FACT,
     "fact": TYPE_FACT,
 }
