@@ -129,6 +129,7 @@ def _load_font(size: int):
 def _load_latin_font(size: int):
     """فونت لاتین برای واترمارک darkknightstudio (نه عربی)."""
     candidates = [
+        str(_FONT_DIR / "DejaVuSans.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
