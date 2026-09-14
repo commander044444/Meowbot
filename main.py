@@ -565,23 +565,28 @@ async def on_message(message: Message):
 
         anim = get_animation_from_message(reply_msg)
         if anim is None:
-            await message.reply(
-                "❌ پیام ریپلای‌شده GIF نیست.\n"
-                "روی یک GIF یا Animation ریپلای کن."
-            )
+            try:
+                await message.reply(
+                    "❌ پیام ریپلای‌شده GIF نیست.\n"
+                    "روی یک GIF یا Animation ریپلای کن."
+                )
+            except Exception:
+                pass
             return
 
-        await message.reply("⏳ دارم متن رو روی گیف می‌ذارم...")
-
+        # بدون پیام progress — reply گاهی Forbidden می‌دهد و کل هندلر می‌ترکید
         try:
             raw = await download_animation_bytes(bot, anim)
             out_bytes = add_text_to_gif(raw, caption)
         except Exception as e:
             print(f"❌ gif caption failed: {e}")
-            await message.reply(
-                f"❌ نشد گیف رو پردازش کنم.\n"
-                f"({e})"
-            )
+            try:
+                await message.reply(
+                    f"❌ نشد گیف رو پردازش کنم.\n"
+                    f"({e})"
+                )
+            except Exception as e2:
+                print(f"❌ gif error reply failed: {e2}")
             return
 
         try:
@@ -594,11 +599,23 @@ async def on_message(message: Message):
                 await bot.send_animation(
                     chat_id,
                     file_obj,
-                    reply_to_message_id=getattr(message, "message_id", None),
+                    reply_to_message_id=getattr(
+                        message, "message_id", None
+                    ),
                 )
         except Exception as e:
             print(f"❌ gif send failed: {e}")
-            await message.reply("❌ گیف ساخته شد ولی ارسال نشد.")
+            try:
+                # fallback: ارسال بدون reply
+                from bale import InputFile
+                file_obj = InputFile(out_bytes, file_name="meow_caption.gif")
+                await bot.send_animation(chat_id, file_obj)
+            except Exception as e2:
+                print(f"❌ gif send fallback failed: {e2}")
+                try:
+                    await message.reply("❌ گیف ساخته شد ولی ارسال نشد.")
+                except Exception:
+                    pass
         return
 
 
