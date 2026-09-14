@@ -126,27 +126,6 @@ def _load_font(size: int):
     return ImageFont.load_default()
 
 
-def _load_latin_font(size: int):
-    """فونت لاتین برای واترمارک darkknightstudio (نه عربی)."""
-    candidates = [
-        str(_FONT_DIR / "DejaVuSans.ttf"),
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/tahoma.ttf",
-    ]
-    for path in candidates:
-        if Path(path).is_file():
-            try:
-                return ImageFont.truetype(path, size=size)
-            except Exception:
-                continue
-    # fallback: همان پیش‌فرض pillow برای لاتین معمولاً OK است
-    return ImageFont.load_default()
-
 
 def _wrap_text(draw, text, font, max_width):
     """شکستن متن به چند خط بر اساس عرض."""
@@ -259,23 +238,6 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
             stroke_fill=(0, 0, 0, 230),
         )
         y += h + gap
-
-    # واترمارک کوچک بالا-چپ — فونت لاتین، محو، کمی پایین‌تر از لبه
-    wm = "darkknightstudio"
-    wm_size = max(9, min(img.width, img.height) // 32)
-    wm_font = _load_latin_font(wm_size)
-    pad_x = max(4, int(img.width * 0.02))
-    # ۳٪ پایین‌تر از لبه بالا
-    pad_y = max(4, int(img.height * 0.03)) + max(2, int(img.height * 0.02))
-    # رنگ محو خاکستری روشن — نه خیلی معلوم
-    draw.text(
-        (pad_x, pad_y),
-        wm,
-        font=wm_font,
-        fill=(220, 220, 220, 110),
-        stroke_width=1,
-        stroke_fill=(0, 0, 0, 90),
-    )
 
     composed = Image.alpha_composite(img, overlay)
     # GIF palette
