@@ -876,6 +876,63 @@ def get_gym_level(user_id, chat_id=None):
     return int(user["gym_level"])
 
 
+def admin_set_meow_points(user_id, new_value):
+    """Set absolute meow_points (clamped >= 0). Returns (ok, old, new)."""
+    user_id = int(user_id)
+    new_value = max(0, int(new_value))
+    user = get_user(user_id)
+    if not user:
+        return False, 0, 0
+    old = int(user["meow_points"] or 0)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE users SET meow_points = ? WHERE user_id = ?",
+        (new_value, user_id),
+    )
+    connection.commit()
+    connection.close()
+    return True, old, new_value
+
+
+def admin_set_meow_coins(user_id, new_value):
+    """Set absolute meow_coins (clamped >= 0). Returns (ok, old, new)."""
+    user_id = int(user_id)
+    new_value = max(0, int(new_value))
+    user = get_user(user_id)
+    if not user:
+        return False, 0, 0
+    old = int(user["meow_coins"] or 0)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE users SET meow_coins = ? WHERE user_id = ?",
+        (new_value, user_id),
+    )
+    connection.commit()
+    connection.close()
+    return True, old, new_value
+
+
+def admin_set_gym_level(user_id, new_value, min_level=1, max_level=100):
+    """Set absolute gym_level clamped to [min_level, max_level]. Returns (ok, old, new)."""
+    user_id = int(user_id)
+    new_value = max(int(min_level), min(int(max_level), int(new_value)))
+    user = get_user(user_id)
+    if not user:
+        return False, 0, 0
+    old = int(user["gym_level"] or 1)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE users SET gym_level = ? WHERE user_id = ?",
+        (new_value, user_id),
+    )
+    connection.commit()
+    connection.close()
+    return True, old, new_value
+
+
 # ==========================================
 # Last Meow (Global cooldown)
 # ==========================================

@@ -8,6 +8,7 @@ from config import (
     BOT_TOKEN,
     ALLOWED_GROUP,
     OWNER_ID,
+    MAX_GYM_LEVEL,
 )
 
 from database import (
@@ -16,6 +17,10 @@ from database import (
     get_all_groups,
     add_meow_points_to_all,
     add_meow_coins_to_all,
+    get_user as db_get_user,
+    admin_set_meow_points,
+    admin_set_meow_coins,
+    admin_set_gym_level,
 )
 
 from meow import (
@@ -90,6 +95,10 @@ from seasons import (
     start_season_scheduler,
 )
 
+from ui_helpers import (
+    patch_bot_messaging,
+)
+
 
 # ==========================================
 # Database
@@ -105,6 +114,9 @@ init_database()
 bot = Bot(
     token=BOT_TOKEN
 )
+
+# دکمه استدیو زیر تمام پیام‌ها (send / reply / edit)
+patch_bot_messaging(bot)
 
 
 # ==========================================
@@ -160,6 +172,14 @@ async def on_ready():
 
     print(
         "📅 Seasons System: ON"
+    )
+
+    print(
+        "🎮 Admin Economy Commands: ON"
+    )
+
+    print(
+        "🌑 Studio Button: ON"
     )
 
     print("=" * 55)
@@ -315,6 +335,111 @@ async def on_message(message: Message):
         )
         if handled:
             return
+
+
+    # ======================================
+    # 🎮 Admin Economy: /addcoin /addpoint /addgym
+    # ======================================
+
+    admin_prefixes = (
+        "/addcoin",
+        "/addpoint",
+        "/addgym",
+        "addcoin",
+        "addpoint",
+        "addgym",
+    )
+    admin_cmd_raw = text.strip()
+    admin_cmd_lower = admin_cmd_raw.lower()
+
+    matched_admin = None
+    args_part = ""
+    for p in admin_prefixes:
+        if admin_cmd_lower.startswith(p + " ") or admin_cmd_lower == p:
+            matched_admin = p.lstrip("/").lower()
+            args_part = admin_cmd_raw[len(p):].strip()
+            break
+
+    if matched_admin is not None:
+
+        if int(user_id) != int(OWNER_ID):
+            await message.reply(
+                "⛔ فقط ادمین ربات می‌تواند از دستورات مدیریت اقتصاد استفاده کند."
+            )
+            return
+
+        parts = args_part.split()
+        if len(parts) != 2:
+            await message.reply(
+                "❌ فرمت نادرست.\n\n"
+                "مثال:\n"
+                "/addcoin 123456789 500\n"
+                "/addpoint 123456789 -100\n"
+                "/addgym 123456789 2"
+            )
+            return
+
+        try:
+            target_id = int(parts[0])
+            delta = int(parts[1])
+        except ValueError:
+            await message.reply(
+                "❌ ID و مقدار باید عدد صحیح باشند.\n\n"
+                "مثال: /addcoin 123456789 500"
+            )
+            return
+
+        target = db_get_user(target_id)
+        if not target:
+            await message.reply(
+                f"❌ بازیکن با ID `{target_id}` در دیتابیس پیدا نشد."
+            )
+            return
+
+        name = target["first_name"] or "Unknown"
+        uname = target["username"] or ""
+        label = f"@{uname}" if uname else name
+
+        if matched_admin == "addcoin":
+            old_val = int(target["meow_coins"] or 0)
+            new_val = max(0, old_val + delta)
+            ok, old_v, new_v = admin_set_meow_coins(target_id, new_val)
+            field = "🪙 Meow Coin"
+        elif matched_admin == "addpoint":
+            old_val = int(target["meow_points"] or 0)
+            new_val = max(0, old_val + delta)
+            ok, old_v, new_v = admin_set_meow_points(target_id, new_val)
+            field = "⭐ Meow Point"
+        else:
+            old_val = int(target["gym_level"] or 1)
+            new_val = max(1, min(int(MAX_GYM_LEVEL), old_val + delta))
+            ok, old_v, new_v = admin_set_gym_level(
+                target_id, new_val, min_level=1, max_level=int(MAX_GYM_LEVEL)
+            )
+            field = "🏋️ Gym Level"
+
+        if not ok:
+            await message.reply("❌ ذخیره در دیتابیس ناموفق بود.")
+            return
+
+        sign = "+" if delta >= 0 else ""
+        print(
+            f"🎮 ADMIN {matched_admin} | by={user_id} target={target_id} "
+            f"delta={delta} {old_v}->{new_v}"
+        )
+
+        await message.reply(
+            "✅ تغییر با موفقیت اعمال شد.\n\n"
+            "━━━━━━━━━━━━━━\n"
+            f"👤 بازیکن: {label}\n"
+            f"🆔 ID: `{target_id}`\n"
+            f"📊 فیلد: {field}\n"
+            f"Δ تغییر: {sign}{delta}\n"
+            f"📌 قبل: {old_v}\n"
+            f"📌 بعد: {new_v}\n"
+            "━━━━━━━━━━━━━━"
+        )
+        return
 
 
     # ======================================
