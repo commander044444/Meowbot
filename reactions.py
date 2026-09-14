@@ -25,6 +25,7 @@ PROB = {
     "swear_joke": 1.0,     # کس/کص/کث/نچ/نوچ/کونی (شوخی)
     "chetori": 1.0,        # چطوری
     "reply_to_bot": 1.0,   # ریپلای روی پیام ربات
+    "bot_call": 1.0,       # بات / ربات / میوبات
     "random_chat": 0.03,   # پیام تصادفی بدون تریگر (کم بماند تا اسپم نشود)
 }
 
@@ -126,6 +127,32 @@ RESPONSES = {
         "من اینورم دیگه 🥹🗿",
         "چیشد 🗿",
     ],
+    # بار اول صدا زدن
+    "bot_call_first_bat": [
+        "بات خودتی🦦 من میو هسم🙄",
+    ],
+    "bot_call_first_robat": [
+        "بلههههههههههه",
+        "بلههههه 🗿",
+        "جااان؟ 🦦",
+    ],
+    # بارهای ۲ و ۳ در همان ۱ دقیقه
+    "bot_call_repeat": [
+        "هاااااا",
+        "خب بگوووووو",
+        "بگو بنویس راهنما ببین من چی‌ام",
+        "چیشد دوباره؟ 🗿",
+        "جانم بگو 🦦",
+        "گوشم با توست بگو 🫠",
+        "ها بگو دیگه 🗿",
+        "من اینجام بگو 🐱",
+    ],
+    # بار ۴ به بعد در همان ۱ دقیقه
+    "bot_call_angry": [
+        "دیگه جوابتو نمیدم😁 ولمممم کنینن بابااااااا",
+        "دیگه جوابتو نمیدم😁 ولمممم کنینن بابااااااا 🗿",
+        "بسه دیگه ولم کنینن بابااااااا 😁",
+    ],
     "random_chat": [
         "مشتی نمی‌خوای یه میو کنی؟ 🗿",
         "هعییی چرا کسی با من بازی نمی‌کنه 🫠🥹",
@@ -148,6 +175,11 @@ RESPONSES = {
 _last_group_reaction = defaultdict(float)   # chat_id -> timestamp
 _last_user_reaction = defaultdict(float)    # (chat_id, user_id) -> timestamp
 _last_random_chat = defaultdict(float)      # chat_id -> timestamp
+
+# صدا زدن بات/ربات: تعداد در پنجره ۱ دقیقه‌ای per (chat, user)
+_bot_call_times = defaultdict(list)  # key -> [timestamps]
+BOT_CALL_WINDOW = 60  # ثانیه
+BOT_CALL_IGNORE_AFTER = 4  # از بار ۴ به بعد قهر می‌کند
 
 
 # ==========================================
@@ -254,6 +286,50 @@ _CHETORI = re.compile(
     re.IGNORECASE,
 )
 
+# بات / ربات / میوبات / bot (مرز کلمه)
+_BOT_CALL = re.compile(
+    r"(?:^|[\s.!،,؟?\u200c])(?:ربات|بات|میوبات|میو\s*بات|meow\s*bot|\bbot\b)(?:$|[\s.!،,؟?\u200c])",
+    re.IGNORECASE,
+)
+
+
+def _bot_call_kind(norm: str, raw: str) -> str | None:
+    """برمی‌گرداند: 'robat' | 'bat' | None"""
+    if not _BOT_CALL.search(norm) and not _BOT_CALL.search(raw):
+        return None
+    # اولویت با «ربات» چون شامل «بات» هم می‌شود از نظر حروف
+    if re.search(r"ربات", norm) or re.search(r"robot", norm, re.I):
+        return "robat"
+    if re.search(r"میو\s*بات|میوبات|meow\s*bot", norm, re.I):
+        return "bat"
+    if re.search(r"(?:^|[\s])بات(?:$|[\s])", norm) or re.search(r"\bbot\b", norm, re.I):
+        return "bat"
+    if re.search(r"بات", norm):
+        return "bat"
+    return "robat"
+
+
+def _bot_call_count(chat_id, user_id) -> int:
+    """تعداد صدا زدن در ۶۰ ثانیه اخیر (بعد از ثبت فعلی)."""
+    key = (str(chat_id), int(user_id))
+    now = time.time()
+    window = BOT_CALL_WINDOW
+    times = [t for t in _bot_call_times[key] if now - t < window]
+    times.append(now)
+    _bot_call_times[key] = times
+    return len(times)
+
+
+def _response_for_bot_call(kind: str, count: int) -> str:
+    if count >= BOT_CALL_IGNORE_AFTER:
+        return _pick("bot_call_angry")
+    if count == 1:
+        if kind == "bat":
+            return _pick("bot_call_first_bat")
+        return _pick("bot_call_first_robat")
+    # 2 یا 3
+    return _pick("bot_call_repeat")
+
 
 def _is_on_cooldown(chat_id, user_id) -> bool:
     now = time.time()
@@ -321,6 +397,14 @@ def try_react(
 
     raw = str(text)
     norm = _normalize(raw)
+
+    # صدا زدن بات/ربات — با اسکار سیستم پله‌ای در ۱ دقیقه
+    if _chance(PROB.get("bot_call", 1.0)):
+        kind = _bot_call_kind(norm, raw)
+        if kind:
+            count = _bot_call_count(chat_id, user_id)
+            _mark_reacted(chat_id, user_id)
+            return _response_for_bot_call(kind, count)
 
     # ترتیب اولویت تریگرها
     checks = [
