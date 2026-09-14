@@ -236,13 +236,31 @@ def _detect_format(data: bytes) -> str:
     return "unknown"
 
 
-def _mp4_to_gif_bytes(video_bytes: bytes) -> bytes:
-    """تبدیل Animation/MP4 به GIF با ffmpeg."""
-    import subprocess
+def _resolve_ffmpeg() -> str:
+    """مسیر ffmpeg: اول imageio-ffmpeg (برای Railway)، بعد سیستم."""
     import shutil
+    try:
+        import imageio_ffmpeg
+        path = imageio_ffmpeg.get_ffmpeg_exe()
+        if path:
+            return path
+    except Exception as e:
+        print(f"ℹ️ imageio-ffmpeg unavailable: {e}")
+    system = shutil.which("ffmpeg")
+    if system:
+        return system
+    raise RuntimeError(
+        "ffmpeg پیدا نشد. imageio-ffmpeg را در requirements نصب کن "
+        "یا ffmpeg را روی سرور بگذار."
+    )
 
-    if not shutil.which("ffmpeg"):
-        raise RuntimeError("ffmpeg روی سرور نیست؛ نمی‌تونم Animation/MP4 رو پردازش کنم")
+
+def _mp4_to_gif_bytes(video_bytes: bytes) -> bytes:
+    """تبدیل Animation/MP4 به GIF با ffmpeg (باینری imageio یا سیستم)."""
+    import subprocess
+
+    ffmpeg_bin = _resolve_ffmpeg()
+    print(f"🎬 using ffmpeg: {ffmpeg_bin}")
 
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
@@ -252,16 +270,16 @@ def _mp4_to_gif_bytes(video_bytes: bytes) -> bytes:
 
         # fps محدود + مقیاس برای حجم کمتر
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "error",
+            ffmpeg_bin, "-y", "-loglevel", "error",
             "-i", str(src),
             "-vf", f"fps=12,scale={MAX_SIDE}:-1:flags=lanczos:force_original_aspect_ratio=decrease",
             "-frames:v", str(MAX_FRAMES),
             "-gifflags", "+transdiff",
             str(out),
         ]
-        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+        proc = subprocess.run(cmd, capture_output=True, timeout=90)
         if proc.returncode != 0 or not out.is_file() or out.stat().st_size < 20:
-            err = (proc.stderr or b"").decode("utf-8", "ignore")[:300]
+            err = (proc.stderr or b"").decode("utf-8", "ignore")[:400]
             raise ValueError(f"تبدیل MP4 به GIF ناموفق: {err or 'خروجی خالی'}")
         return out.read_bytes()
 

@@ -1,2 +1,3 @@
 python-bale-bot
 Pillow
+imageio-ffmpeg
