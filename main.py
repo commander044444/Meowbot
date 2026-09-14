@@ -97,6 +97,7 @@ from seasons import (
 
 from ui_helpers import (
     patch_bot_messaging,
+    send_message as studio_send_message,
 )
 
 
@@ -844,7 +845,7 @@ async def on_message(message: Message):
 
             try:
 
-                await bot.send_message(
+                await studio_send_message(bot, 
                     group_id,
                     broadcast_text
                 )
@@ -1506,7 +1507,7 @@ async def on_callback(callback: CallbackQuery):
                     components=keyboard
                 )
             else:
-                await bot.send_message(
+                await studio_send_message(bot, 
                     getattr(cb_message.chat, "id", user_id),
                     text,
                     components=keyboard
@@ -1519,7 +1520,7 @@ async def on_callback(callback: CallbackQuery):
                 )
                 if chat_id is None:
                     chat_id = user_id
-                await bot.send_message(
+                await studio_send_message(bot, 
                     chat_id,
                     text,
                     components=keyboard
@@ -1556,7 +1557,7 @@ async def on_callback(callback: CallbackQuery):
                     components=keyboard
                 )
             else:
-                await bot.send_message(
+                await studio_send_message(bot, 
                     getattr(cb_message.chat, "id", user_id),
                     text,
                     components=keyboard
@@ -1569,7 +1570,7 @@ async def on_callback(callback: CallbackQuery):
                 )
                 if chat_id is None:
                     chat_id = user_id
-                await bot.send_message(
+                await studio_send_message(bot, 
                     chat_id,
                     text,
                     components=keyboard
@@ -1602,7 +1603,7 @@ async def on_callback(callback: CallbackQuery):
                 components=keyboard
             )
         else:
-            await bot.send_message(
+            await studio_send_message(bot, 
                 getattr(cb_message.chat, "id", user.id),
                 text,
                 components=keyboard
@@ -1613,7 +1614,7 @@ async def on_callback(callback: CallbackQuery):
             chat_id = getattr(getattr(cb_message, "chat", None), "id", None)
             if chat_id is None:
                 chat_id = user.id
-            await bot.send_message(
+            await studio_send_message(bot, 
                 chat_id,
                 text,
                 components=keyboard

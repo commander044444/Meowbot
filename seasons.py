@@ -29,6 +29,8 @@ from database import (
     save_season_result,
 )
 
+from ui_helpers import send_message as studio_send_message
+
 
 TEHRAN = ZoneInfo("Asia/Tehran")
 
@@ -151,7 +153,7 @@ async def broadcast_to_all(bot, text, also_owner=True):
             print(f"⚠️ seasons skip invalid group_id: {group_id}")
             continue
         try:
-            await bot.send_message(group_id, text)
+            await studio_send_message(bot, group_id, text)
             sent += 1
         except Exception as e:
             failed += 1
@@ -159,7 +161,7 @@ async def broadcast_to_all(bot, text, also_owner=True):
 
     if also_owner:
         try:
-            await bot.send_message(OWNER_ID, text)
+            await studio_send_message(bot, OWNER_ID, text)
             sent += 1
         except Exception as e:
             print(f"❌ seasons owner notify fail: {e}")
@@ -228,7 +230,7 @@ async def start_new_season(bot, reply_message=None):
             pass
     else:
         try:
-            await bot.send_message(OWNER_ID, report)
+            await studio_send_message(bot, OWNER_ID, report)
         except Exception:
             pass
 
@@ -306,7 +308,7 @@ async def end_season(bot, reason="manual", reply_message=None):
             pass
     else:
         try:
-            await bot.send_message(OWNER_ID, report)
+            await studio_send_message(bot, OWNER_ID, report)
         except Exception:
             pass
 

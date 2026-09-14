@@ -2,6 +2,8 @@
 # 🐱 MeowBot - UI Helpers (Studio Button)
 # ==========================================
 # دکمه شیشه‌ای «دارک نایت استدیو» زیر تمام پیام‌های ربات
+# Bot.send_message در python-bale-bot فقط‌خواندنی است؛
+# بنابراین از helper و پچ کلاس Message استفاده می‌کنیم.
 # ==========================================
 
 from bale import InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,6 +11,8 @@ from bale import InlineKeyboardMarkup, InlineKeyboardButton
 
 STUDIO_BUTTON_TEXT = "🌑 دارک نایت استدیو"
 STUDIO_BUTTON_URL = "https://ble.ir/join/FetpvYjpGQ"
+
+_message_patched = False
 
 
 def studio_button():
@@ -22,7 +26,6 @@ def studio_button():
 def with_studio(components=None):
     """
     کیبورد موجود را حفظ می‌کند و دکمه استدیو را در ردیف آخر اضافه می‌کند.
-    اگر components خالی باشد، فقط همان یک دکمه برگردانده می‌شود.
     """
     markup = InlineKeyboardMarkup()
     max_row = 0
@@ -45,31 +48,37 @@ def with_studio(components=None):
     return markup
 
 
-def patch_bot_messaging(bot):
+async def send_message(bot, chat_id, text, components=None, **kwargs):
     """
-    تمام مسیرهای ارسال/ویرایش پیام ربات را طوری wrap می‌کند
-    که همیشه دکمه استدیو زیر پیام باشد.
+    جایگزین امن برای bot.send_message با دکمه استدیو.
+    در تمام کد به‌جای bot.send_message از این تابع استفاده شود.
     """
-    # --- bot.send_message ---
-    if not getattr(bot, "_studio_send_patched", False):
-        _orig_send = bot.send_message
+    components = with_studio(components)
+    return await bot.send_message(
+        chat_id, text, components=components, **kwargs
+    )
 
-        async def send_with_studio(chat_id, text, *args, components=None, **kwargs):
-            components = with_studio(components)
-            return await _orig_send(
-                chat_id, text, *args, components=components, **kwargs
-            )
 
-        bot.send_message = send_with_studio
-        bot._studio_send_patched = True
+def patch_bot_messaging(bot=None):
+    """
+    Message.reply / edit / edit_text را در سطح کلاس wrap می‌کند
+    تا همه message.replyها خودکار دکمه استدیو بگیرند.
 
-    # --- Message.reply / edit ---
+    bot.send_message را دست نمی‌زنیم (read-only است).
+    برای send از ui_helpers.send_message استفاده شود.
+    """
+    global _message_patched
+    if _message_patched:
+        return
+
     try:
         from bale import Message
     except ImportError:
+        print("⚠️ ui_helpers: bale.Message not available")
         return
 
-    if not getattr(Message, "_studio_reply_patched", False):
+    # --- reply ---
+    if hasattr(Message, "reply"):
         _orig_reply = Message.reply
 
         async def reply_with_studio(self, text, *args, components=None, **kwargs):
@@ -78,30 +87,40 @@ def patch_bot_messaging(bot):
                 self, text, *args, components=components, **kwargs
             )
 
-        Message.reply = reply_with_studio
-        Message._studio_reply_patched = True
+        try:
+            Message.reply = reply_with_studio
+        except Exception as e:
+            print(f"⚠️ Could not patch Message.reply: {e}")
 
-    if not getattr(Message, "_studio_edit_patched", False):
-        if hasattr(Message, "edit"):
-            _orig_edit = Message.edit
+    # --- edit ---
+    if hasattr(Message, "edit"):
+        _orig_edit = Message.edit
 
-            async def edit_with_studio(self, text, *args, components=None, **kwargs):
-                components = with_studio(components)
-                return await _orig_edit(
-                    self, text, *args, components=components, **kwargs
-                )
+        async def edit_with_studio(self, text, *args, components=None, **kwargs):
+            components = with_studio(components)
+            return await _orig_edit(
+                self, text, *args, components=components, **kwargs
+            )
 
+        try:
             Message.edit = edit_with_studio
+        except Exception as e:
+            print(f"⚠️ Could not patch Message.edit: {e}")
 
-        if hasattr(Message, "edit_text"):
-            _orig_edit_text = Message.edit_text
+    # --- edit_text ---
+    if hasattr(Message, "edit_text"):
+        _orig_edit_text = Message.edit_text
 
-            async def edit_text_with_studio(self, text, *args, components=None, **kwargs):
-                components = with_studio(components)
-                return await _orig_edit_text(
-                    self, text, *args, components=components, **kwargs
-                )
+        async def edit_text_with_studio(self, text, *args, components=None, **kwargs):
+            components = with_studio(components)
+            return await _orig_edit_text(
+                self, text, *args, components=components, **kwargs
+            )
 
+        try:
             Message.edit_text = edit_text_with_studio
+        except Exception as e:
+            print(f"⚠️ Could not patch Message.edit_text: {e}")
 
-        Message._studio_edit_patched = True
+    _message_patched = True
+    print("✅ Studio button: Message.reply/edit patched")
