@@ -213,9 +213,63 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
     return composed.convert("RGB")
 
 
+def _detect_format(data: bytes) -> str:
+    """تشخیص فرمت از magic bytes."""
+    if not data or len(data) < 12:
+        return "unknown"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[4:8] == b"ftyp":
+        return "mp4"
+    if data[:4] == b"\x1aE\xdf\xa3":
+        return "webm"
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    # بعضی پاسخ‌های خطا متنی‌اند
+    head = data[:80].lstrip()
+    if head.startswith(b"<") or head.startswith(b"{") or head.startswith(b"error"):
+        return "error_payload"
+    return "unknown"
+
+
+def _mp4_to_gif_bytes(video_bytes: bytes) -> bytes:
+    """تبدیل Animation/MP4 به GIF با ffmpeg."""
+    import subprocess
+    import shutil
+
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg روی سرور نیست؛ نمی‌تونم Animation/MP4 رو پردازش کنم")
+
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        src = td / "in.mp4"
+        out = td / "out.gif"
+        src.write_bytes(video_bytes)
+
+        # fps محدود + مقیاس برای حجم کمتر
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(src),
+            "-vf", f"fps=12,scale={MAX_SIDE}:-1:flags=lanczos:force_original_aspect_ratio=decrease",
+            "-frames:v", str(MAX_FRAMES),
+            "-gifflags", "+transdiff",
+            str(out),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+        if proc.returncode != 0 or not out.is_file() or out.stat().st_size < 20:
+            err = (proc.stderr or b"").decode("utf-8", "ignore")[:300]
+            raise ValueError(f"تبدیل MP4 به GIF ناموفق: {err or 'خروجی خالی'}")
+        return out.read_bytes()
+
+
 def add_text_to_gif(gif_bytes: bytes, text: str) -> bytes:
     """
     متن را روی همه فریم‌ها می‌کشد و GIF جدید برمی‌گرداند.
+    از GIF واقعی و Animationهای MP4 پشتیبانی می‌کند.
     """
     if Image is None:
         raise RuntimeError("Pillow نصب نیست. pip install Pillow")
@@ -223,13 +277,59 @@ def add_text_to_gif(gif_bytes: bytes, text: str) -> bytes:
     if not gif_bytes:
         raise ValueError("فایل خالی است")
     if len(gif_bytes) > MAX_FILE_BYTES:
-        raise ValueError("حجم GIF زیاد است (حداکثر حدود ۸ مگابایت)")
+        raise ValueError("حجم فایل زیاد است (حداکثر حدود ۸ مگابایت)")
 
     text = str(text).strip()
     if len(text) > MAX_TEXT_CHARS:
         text = text[:MAX_TEXT_CHARS] + "…"
 
-    src = Image.open(io.BytesIO(gif_bytes))
+    fmt = _detect_format(gif_bytes)
+    print(f"🎬 gif_caption: detected={fmt} size={len(gif_bytes)}")
+
+    if fmt == "error_payload":
+        raise ValueError("دانلود فایل نامعتبر بود (پاسخ خطا از سرور)")
+    if fmt in ("mp4", "webm", "unknown"):
+        # بله اغلب Animation را به‌صورت MP4 می‌فرستد
+        try:
+            gif_bytes = _mp4_to_gif_bytes(gif_bytes)
+            fmt = _detect_format(gif_bytes)
+            print(f"🎬 after ffmpeg: detected={fmt} size={len(gif_bytes)}")
+        except Exception as e:
+            if fmt != "unknown":
+                raise
+            # unknown: یک‌بار با Pillow امتحان می‌شود پایین
+            print(f"ℹ️ ffmpeg convert skipped/failed: {e}")
+
+    if fmt not in ("gif", "unknown"):
+        # jpeg/png تکی → یک فریم GIF
+        if fmt in ("jpeg", "png", "webp"):
+            img = Image.open(io.BytesIO(gif_bytes)).convert("RGB")
+            w, h = img.size
+            scale = min(1.0, MAX_SIDE / max(w, h))
+            if scale < 1.0:
+                img = img.resize(
+                    (max(1, int(w * scale)), max(1, int(h * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+            drawn = _draw_caption(img.convert("RGBA"), text)
+            out = io.BytesIO()
+            drawn.save(out, format="GIF")
+            return out.getvalue()
+        raise ValueError(f"فرمت پشتیبانی نمی‌شود: {fmt}")
+
+    try:
+        src = Image.open(io.BytesIO(gif_bytes))
+    except Exception as e:
+        # آخرین تلاش: شاید mp4 بوده و detect اشتباه کرده
+        try:
+            gif_bytes = _mp4_to_gif_bytes(gif_bytes)
+            src = Image.open(io.BytesIO(gif_bytes))
+        except Exception:
+            raise ValueError(
+                f"نمی‌تونم فایل رو به‌عنوان تصویر باز کنم ({e}). "
+                "مطمئن شو روی GIF یا Animation ریپلای کردی."
+            ) from e
+
     frames_out = []
     durations = []
 
@@ -245,7 +345,6 @@ def add_text_to_gif(gif_bytes: bytes, text: str) -> bytes:
         durations.append(int(duration))
 
         fr = frame.convert("RGBA")
-        # مقیاس اگر خیلی بزرگ
         w, h = fr.size
         scale = min(1.0, MAX_SIDE / max(w, h))
         if scale < 1.0:
@@ -258,10 +357,9 @@ def add_text_to_gif(gif_bytes: bytes, text: str) -> bytes:
         frames_out.append(drawn)
 
     if not frames_out:
-        raise ValueError("هیچ فریمی در GIF پیدا نشد")
+        raise ValueError("هیچ فریمی پیدا نشد")
 
     out = io.BytesIO()
-    # ذخیره به صورت GIF با حفظ timing
     first, rest = frames_out[0], frames_out[1:]
     save_kwargs = {
         "format": "GIF",
@@ -274,8 +372,7 @@ def add_text_to_gif(gif_bytes: bytes, text: str) -> bytes:
     }
     first.save(out, **save_kwargs)
     data = out.getvalue()
-    if len(data) > MAX_FILE_BYTES * 1.5:
-        # تلاش دوم با کیفیت کمتر: فقط نصف فریم‌ها
+    if len(data) > MAX_FILE_BYTES * 1.5 and len(frames_out) > 2:
         slim = frames_out[::2]
         slim_dur = durations[::2]
         out2 = io.BytesIO()
@@ -301,26 +398,49 @@ async def download_animation_bytes(bot, file_obj) -> bytes:
 
     size = getattr(file_obj, "file_size", None)
     if size and int(size) > MAX_FILE_BYTES:
-        raise ValueError("حجم GIF زیاد است")
+        raise ValueError("حجم فایل زیاد است")
+
+    data = None
+    errors = []
 
     # روش ۱: animation.get() اگر باشد
     if hasattr(file_obj, "get"):
         try:
             data = await file_obj.get()
-            if isinstance(data, (bytes, bytearray)):
-                return bytes(data)
-        except Exception:
-            pass
+            if isinstance(data, (bytes, bytearray)) and len(data) > 32:
+                data = bytes(data)
+            else:
+                data = None
+        except Exception as e:
+            errors.append(f"get:{e}")
 
     # روش ۲: bot.get_file(file_id) → bytes
-    data = await bot.get_file(file_id)
-    if isinstance(data, (bytes, bytearray)):
-        return bytes(data)
+    if data is None:
+        try:
+            raw = await bot.get_file(str(file_id))
+            if isinstance(raw, (bytes, bytearray)) and len(raw) > 32:
+                data = bytes(raw)
+            else:
+                errors.append(f"get_file:type={type(raw)} len={len(raw) if raw is not None else 0}")
+        except Exception as e:
+            errors.append(f"get_file:{e}")
 
     # روش ۳: save_to_memory
-    if hasattr(file_obj, "save_to_memory"):
-        buf = io.BytesIO()
-        await file_obj.save_to_memory(buf)
-        return buf.getvalue()
+    if data is None and hasattr(file_obj, "save_to_memory"):
+        try:
+            buf = io.BytesIO()
+            await file_obj.save_to_memory(buf)
+            raw = buf.getvalue()
+            if raw and len(raw) > 32:
+                data = raw
+        except Exception as e:
+            errors.append(f"save_to_memory:{e}")
 
-    raise ValueError("نتوانستم فایل را دانلود کنم")
+    if not data:
+        raise ValueError("نتوانستم فایل را دانلود کنم: " + " | ".join(errors[:3]))
+
+    print(
+        f"🎬 downloaded {len(data)} bytes, head={data[:8]!r}, "
+        f"mime={getattr(file_obj, 'mime_type', None)}"
+    )
+    return data
