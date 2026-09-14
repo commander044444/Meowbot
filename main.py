@@ -183,6 +183,10 @@ async def on_ready():
         "🌑 Studio Button: ON"
     )
 
+    print(
+        "📢 Echo System: ON"
+    )
+
     print("=" * 55)
 
     # Start season midnight scheduler (Tehran)
@@ -440,6 +444,76 @@ async def on_message(message: Message):
             f"📌 بعد: {new_v}\n"
             "━━━━━━━━━━━━━━"
         )
+        return
+
+
+    # ======================================
+    # 📢 اکو (Echo)
+    # ======================================
+    # اکو سلام  →  ربات می‌نویسد: سلام
+    # اگر ادمین باشد پیام کاربر را پاک می‌کند
+    # اگر روی پیام کسی ریپلای شده باشد، ربات هم همان‌جا ریپلای می‌کند
+
+    echo_prefixes = ("اکو ", "اکو\u200c", "اکو\n", "اکو\t", "echo ")
+    echo_text = None
+    stripped = text.strip()
+    lower_stripped = stripped.lower()
+
+    for pref in echo_prefixes:
+        if stripped.startswith(pref) or lower_stripped.startswith(pref.lower()):
+            # طول پیشوند را از روی نسخهٔ اصلی برش بزن
+            # برای echo از lower استفاده می‌کنیم
+            if pref.lower().startswith("echo"):
+                if lower_stripped.startswith("echo "):
+                    echo_text = stripped[5:].strip()
+                break
+            else:
+                # اکو + جداکننده
+                if stripped.startswith("اکو"):
+                    rest = stripped[3:].lstrip(" \t\n\u200c")
+                    echo_text = rest
+                break
+
+    # فقط «اکو» بدون متن → نادیده
+    if echo_text is not None and echo_text == "":
+        echo_text = None
+
+    if echo_text is not None:
+        # هدف ریپلای: پیام اصلی‌ای که کاربر روی آن ریپلای کرده
+        reply_target = getattr(message, "reply_to_message", None)
+        reply_to_id = None
+        if reply_target is not None:
+            reply_to_id = getattr(reply_target, "message_id", None) or getattr(
+                reply_target, "id", None
+            )
+
+        # تلاش برای پاک کردن پیام کاربر (فقط اگر ربات ادمین باشد موفق می‌شود)
+        try:
+            if hasattr(message, "delete"):
+                await message.delete()
+            else:
+                mid = getattr(message, "message_id", None) or getattr(message, "id", None)
+                if mid is not None and chat_id is not None:
+                    await bot.delete_message(chat_id, mid)
+        except Exception as del_err:
+            # ادمین نیست یا دسترسی حذف ندارد → بدون پاک کردن ادامه بده
+            print(f"ℹ️ echo delete skipped: {del_err}")
+
+        # ارسال متن اکو
+        try:
+            kwargs = {}
+            if reply_to_id is not None:
+                kwargs["reply_to_message_id"] = reply_to_id
+
+            await studio_send_message(bot, chat_id, echo_text, **kwargs)
+        except Exception as send_err:
+            print(f"❌ echo send failed: {send_err}")
+            # fallback: reply به همان پیام کاربر (اگر پاک نشده باشد)
+            try:
+                await message.reply(echo_text)
+            except Exception:
+                pass
+
         return
 
 
