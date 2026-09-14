@@ -218,7 +218,7 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
     gap = max(4, int(img.height * 0.012))
     total_h = sum(line_heights) + gap * (len(lines) - 1)
     # فاصله از لبه پایین — متن کمی بالاتر تا نچسبد به لبه
-    margin_bottom = max(16, int(img.height * 0.12))
+    margin_bottom = max(16, int(img.height * 0.17))
     y = img.height - margin_bottom - total_h
     # حداقل فاصله از بالا برای متن‌های خیلی بلند
     if y < int(img.height * 0.45):
