@@ -98,12 +98,21 @@ from seasons import (
 from ui_helpers import (
     patch_bot_messaging,
     send_message as studio_send_message,
+    with_studio,
 )
 
 from reactions import (
     try_react,
     is_message_from_bot,
     is_reply_to_bot,
+)
+
+from gif_caption import (
+    is_gif_caption_command,
+    extract_caption_text,
+    get_animation_from_message,
+    download_animation_bytes,
+    add_text_to_gif,
 )
 
 
@@ -195,6 +204,10 @@ async def on_ready():
 
     print(
         "🗿 Reaction System: ON"
+    )
+
+    print(
+        "🎬 GIF Caption: ON"
     )
 
     print("=" * 55)
@@ -524,6 +537,73 @@ async def on_message(message: Message):
             except Exception:
                 pass
 
+        return
+
+
+    # ======================================
+    # 🎬 GIF Caption — «گیف متن» روی ریپلای GIF
+    # ======================================
+
+    if is_gif_caption_command(text):
+        caption = extract_caption_text(text)
+        if not caption:
+            await message.reply(
+                "❌ بعد از «گیف» یک متن بنویس.\n\n"
+                "مثال:\n"
+                "ریپلای روی GIF + گیف سلام داداش 🗿"
+            )
+            return
+
+        reply_msg = getattr(message, "reply_to_message", None)
+        if reply_msg is None:
+            await message.reply(
+                "❌ باید روی یک GIF/Animation ریپلای کنی.\n\n"
+                "مثال: روی گیف ریپلای کن و بنویس\n"
+                "گیف سلام داداش 🗿"
+            )
+            return
+
+        anim = get_animation_from_message(reply_msg)
+        if anim is None:
+            await message.reply(
+                "❌ پیام ریپلای‌شده GIF نیست.\n"
+                "روی یک GIF یا Animation ریپلای کن."
+            )
+            return
+
+        await message.reply("⏳ دارم متن رو روی گیف می‌ذارم...")
+
+        try:
+            raw = await download_animation_bytes(bot, anim)
+            out_bytes = add_text_to_gif(raw, caption)
+        except Exception as e:
+            print(f"❌ gif caption failed: {e}")
+            await message.reply(
+                f"❌ نشد گیف رو پردازش کنم.\n"
+                f"({e})"
+            )
+            return
+
+        try:
+            from bale import InputFile
+            file_obj = InputFile(out_bytes, file_name="meow_caption.gif")
+            # دکمه استدیو
+            components = with_studio(None)
+            if hasattr(message, "reply_animation"):
+                await message.reply_animation(
+                    file_obj,
+                    components=components,
+                )
+            else:
+                await bot.send_animation(
+                    chat_id,
+                    file_obj,
+                    components=components,
+                    reply_to_message_id=getattr(message, "message_id", None),
+                )
+        except Exception as e:
+            print(f"❌ gif send failed: {e}")
+            await message.reply("❌ گیف ساخته شد ولی ارسال نشد.")
         return
 
 
