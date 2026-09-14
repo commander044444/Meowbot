@@ -587,18 +587,13 @@ async def on_message(message: Message):
         try:
             from bale import InputFile
             file_obj = InputFile(out_bytes, file_name="meow_caption.gif")
-            # دکمه استدیو
-            components = with_studio(None)
+            # بدون دکمه استدیو — روی GIF باعث باگ می‌شود
             if hasattr(message, "reply_animation"):
-                await message.reply_animation(
-                    file_obj,
-                    components=components,
-                )
+                await message.reply_animation(file_obj)
             else:
                 await bot.send_animation(
                     chat_id,
                     file_obj,
-                    components=components,
                     reply_to_message_id=getattr(message, "message_id", None),
                 )
         except Exception as e:
