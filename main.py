@@ -100,6 +100,12 @@ from ui_helpers import (
     send_message as studio_send_message,
 )
 
+from reactions import (
+    try_react,
+    is_message_from_bot,
+    is_reply_to_bot,
+)
+
 
 # ==========================================
 # Database
@@ -185,6 +191,10 @@ async def on_ready():
 
     print(
         "📢 Echo System: ON"
+    )
+
+    print(
+        "🗿 Reaction System: ON"
     )
 
     print("=" * 55)
@@ -1482,6 +1492,28 @@ async def on_message(message: Message):
 
         return
 
+
+    # ======================================
+    # 🗿 Reactions (فقط گروه — پیام کاربر)
+    # ======================================
+
+    if not private_chat and not is_message_from_bot(message, bot):
+        # میو اولویت دارد؛ اگر میو بود واکنش نده
+        if not is_meow(text):
+            react_text = try_react(
+                text,
+                chat_id=chat_id,
+                user_id=user_id,
+                is_group=True,
+                is_bot_message=False,
+                reply_to_bot=is_reply_to_bot(message, bot),
+            )
+            if react_text:
+                try:
+                    await message.reply(react_text)
+                except Exception as e:
+                    print(f"❌ reaction reply failed: {e}")
+                return
 
     # ======================================
     # 🐾 Meow
