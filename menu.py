@@ -102,6 +102,45 @@ GUIDE_MENU_TEXT = (
 )
 
 
+
+# ------------------------------------------
+# Keyboards
+# ------------------------------------------
+
+def main_menu_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton(text="👤 پروفایل", callback_data=CB_PROFILE),
+        row=1,
+    )
+    markup.add(
+        InlineKeyboardButton(text="🐱 Pet Meow", callback_data=CB_PET),
+        row=1,
+    )
+    markup.add(
+        InlineKeyboardButton(text="ℹ️ درباره ما", callback_data=CB_ABOUT),
+        row=2,
+    )
+    markup.add(
+        InlineKeyboardButton(text="➕ افزودن ربات به گروه", callback_data=CB_ADD_GROUP),
+        row=3,
+    )
+    markup.add(
+        InlineKeyboardButton(text="📖 آموزش", callback_data=CB_GUIDE),
+        row=4,
+    )
+    return markup
+
+
+def back_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton(text="🔙 بازگشت", callback_data=CB_MAIN),
+        row=1,
+    )
+    return markup
+
+
 def is_start_command(text):
     if not text:
         return False
