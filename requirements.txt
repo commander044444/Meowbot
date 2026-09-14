@@ -1,3 +1,5 @@
 python-bale-bot
 Pillow
 imageio-ffmpeg
+arabic-reshaper
+python-bidi

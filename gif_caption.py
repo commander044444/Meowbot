@@ -24,6 +24,10 @@ MAX_FRAMES = 120
 MAX_SIDE = 640                         # بزرگ‌ترین ضلع خروجی
 MAX_TEXT_CHARS = 80
 
+# فونت فارسی داخل پروژه
+_FONT_DIR = Path(__file__).resolve().parent / "fonts"
+_PERSIAN_FONT = _FONT_DIR / "NotoSansArabic-Bold.ttf"
+
 _GIF_PREFIXES = (
     "گیف ",
     "گیف\u200c",
@@ -88,9 +92,23 @@ def get_animation_from_message(msg):
     return None
 
 
+def _prepare_text(text: str) -> str:
+    """شکل‌دهی فارسی/عربی + RTL تا حروف به‌هم‌پیوسته درست دیده شوند."""
+    text = str(text)
+    try:
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+        reshaped = arabic_reshaper.reshape(text)
+        return get_display(reshaped)
+    except Exception as e:
+        print(f"ℹ️ persian reshape skipped: {e}")
+        return text
+
+
 def _load_font(size: int):
-    """فونت bold در صورت وجود؛ وگرنه پیش‌فرض Pillow."""
+    """اول فونت فارسی پروژه، بعد فونت‌های سیستم."""
     candidates = [
+        str(_PERSIAN_FONT),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -152,22 +170,27 @@ def _wrap_text(draw, text, font, max_width):
 
 
 def _fit_font_and_lines(draw, text, img_w, img_h):
-    max_w = int(img_w * 0.92)
-    # اندازه فونت بر اساس ارتفاع و طول متن
-    base = max(14, min(img_w, img_h) // 12)
-    for size in range(base, 11, -2):
+    max_w = int(img_w * 0.94)
+    # متن بزرگ‌تر: حدود ۱/۷ ضلع کوچک‌تر تصویر
+    base = max(28, min(img_w, img_h) // 7)
+    base = min(base, 72)
+    for size in range(base, 17, -2):
         font = _load_font(size)
         lines = _wrap_text(draw, text, font, max_w)
         if not lines:
             return font, []
-        line_h = draw.textbbox((0, 0), "Ay", font=font)[3]
-        total_h = line_h * len(lines) + 4 * (len(lines) - 1)
+        sample = lines[0]
+        line_h = draw.textbbox((0, 0), sample, font=font)[3] - draw.textbbox((0, 0), sample, font=font)[1]
+        line_h = max(line_h, size + 4)
+        total_h = line_h * len(lines) + 6 * (len(lines) - 1)
         widest = max(
-            draw.textbbox((0, 0), ln, font=font)[2] for ln in lines
+            (draw.textbbox((0, 0), ln, font=font)[2] - draw.textbbox((0, 0), ln, font=font)[0])
+            for ln in lines
         )
-        if total_h <= img_h * 0.35 and widest <= max_w:
+        # تا ۴۵٪ ارتفاع تصویر برای متن مجاز
+        if total_h <= img_h * 0.45 and widest <= max_w:
             return font, lines
-    font = _load_font(12)
+    font = _load_font(20)
     return font, _wrap_text(draw, text, font, max_w)
 
 
@@ -177,6 +200,9 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
     # لایه متن جدا
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
+
+    # فارسی: reshape + bidi قبل از اندازه‌گیری و رسم
+    text = _prepare_text(text)
 
     font, lines = _fit_font_and_lines(draw, text, img.width, img.height)
     if not lines:
@@ -194,7 +220,7 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
     margin_bottom = max(8, int(img.height * 0.04))
     y = img.height - margin_bottom - total_h
 
-    stroke = max(2, int(min(img.width, img.height) / 120))
+    stroke = max(3, int(min(img.width, img.height) / 80))
     for ln, w, h in zip(lines, widths, line_heights):
         x = (img.width - w) // 2
         # outline تیره برای خوانایی
