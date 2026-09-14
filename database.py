@@ -1149,14 +1149,21 @@ def get_top_daily_meowers(day_date, limit=10):
 
 
 def save_season_result(season_id, user_id, meow_points, final_rank, chat_id=None):
+    """
+    Save a final ranking row for a season.
+    chat_id is optional (global ranking); empty string used when None
+    so NOT NULL constraints on older DBs do not fail.
+    """
     connection = get_connection()
     cursor = connection.cursor()
     now = datetime.now().isoformat()
+    # Older DBs may have chat_id as NOT NULL — never pass None
+    safe_chat_id = "" if chat_id is None else str(chat_id)
     cursor.execute("""
         INSERT INTO season_results
             (season_id, user_id, chat_id, meow_points, final_rank, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (int(season_id), int(user_id), chat_id, int(meow_points), int(final_rank), now))
+    """, (int(season_id), int(user_id), safe_chat_id, int(meow_points), int(final_rank), now))
     connection.commit()
     connection.close()
 

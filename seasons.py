@@ -144,6 +144,12 @@ async def broadcast_to_all(bot, text, also_owner=True):
 
     for group in groups:
         group_id = group["chat_id"]
+        # Skip obvious test / invalid IDs (non-numeric placeholders)
+        gid = str(group_id or "").strip()
+        if not gid or not gid.lstrip("-").isdigit():
+            failed += 1
+            print(f"⚠️ seasons skip invalid group_id: {group_id}")
+            continue
         try:
             await bot.send_message(group_id, text)
             sent += 1
