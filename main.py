@@ -84,6 +84,12 @@ from bank import (
     handle_card_to_card,
 )
 
+from seasons import (
+    is_season_command,
+    handle_season_command,
+    start_season_scheduler,
+)
+
 
 # ==========================================
 # Database
@@ -152,7 +158,17 @@ async def on_ready():
         "🐱 Pet Meow System: ON"
     )
 
+    print(
+        "📅 Seasons System: ON"
+    )
+
     print("=" * 55)
+
+    # Start season midnight scheduler (Tehran)
+    try:
+        start_season_scheduler(bot)
+    except Exception as e:
+        print(f"❌ Season scheduler start failed: {e}")
 
 
 # ==========================================
@@ -283,6 +299,22 @@ async def on_message(message: Message):
         )
 
         return
+
+
+    # ======================================
+    # 📅 Season Admin Commands (Private + Owner only)
+    # ======================================
+
+    if is_season_command(text):
+        handled = await handle_season_command(
+            bot=bot,
+            message=message,
+            text=text,
+            user_id=user_id,
+            private_chat=private_chat,
+        )
+        if handled:
+            return
 
 
     # ======================================

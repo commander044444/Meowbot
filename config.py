@@ -42,7 +42,7 @@ MEOW_COOLDOWN = 5 * 60
 BATTLE_COOLDOWN = 600
 
 # مدت هر فصل
-SEASON_DAYS = 30
+SEASON_DAYS = 15
 
 # حداکثر سطح باشگاه میویی
 MAX_GYM_LEVEL = 100

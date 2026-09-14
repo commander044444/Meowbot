@@ -14,7 +14,10 @@ from database import (
     create_user,
     get_user,
     update_user,
+    increment_daily_meow,
 )
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 # ==========================================
@@ -220,6 +223,12 @@ def register_meow(
         last_meow=time.time(),
     )
 
+    # Track daily meow for season rankings (Tehran date)
+    try:
+        tehran_date = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%d")
+        increment_daily_meow(user_id, points, tehran_date)
+    except Exception:
+        pass
 
     # ======================================
     # Result

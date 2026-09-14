@@ -162,6 +162,24 @@ def init_database():
     """)
 
     # ------------------------------------------------------------------
+    # Daily meow stats (for season daily top meowers)
+    # ------------------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_meow_stats (
+            user_id INTEGER NOT NULL,
+            day_date TEXT NOT NULL,
+            meow_count INTEGER DEFAULT 0,
+            points_earned INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, day_date)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_daily_meow_date
+        ON daily_meow_stats (day_date, points_earned DESC)
+    """)
+
+    # ------------------------------------------------------------------
     # Content history (Truth / Dare / Fact) — per-user seen indices
     # ------------------------------------------------------------------
     cursor.execute("""
@@ -1016,6 +1034,129 @@ def reset_meow_points():
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("UPDATE users SET meow_points = 0")
+    connection.commit()
+    connection.close()
+
+
+def add_meow_points_global(amount):
+    """Add meow points to EVERY user in the database."""
+    amount = int(amount)
+    if amount <= 0:
+        return 0
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET meow_points = meow_points + ?",
+            (amount,),
+        )
+        affected = cursor.rowcount
+        connection.commit()
+        return affected
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def add_meow_coins_global(amount):
+    """Add meow coins to EVERY user in the database."""
+    amount = int(amount)
+    if amount <= 0:
+        return 0
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET meow_coins = meow_coins + ?",
+            (amount,),
+        )
+        affected = cursor.rowcount
+        connection.commit()
+        return affected
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def get_next_season_number():
+    """Return the next season number (max + 1, or 1 if none)."""
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(season_number) AS m FROM seasons")
+    row = cursor.fetchone()
+    connection.close()
+    if row is None or row["m"] is None:
+        return 1
+    return int(row["m"]) + 1
+
+
+def get_global_top_users(limit=30):
+    """Global ranking by meow_points then gym_level."""
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("""
+        SELECT * FROM users
+        ORDER BY meow_points DESC, gym_level DESC
+        LIMIT ?
+    """, (int(limit),))
+    users = cursor.fetchall()
+    connection.close()
+    return users
+
+
+def increment_daily_meow(user_id, points_earned, day_date):
+    """
+    Record one successful meow for the given Tehran day_date (YYYY-MM-DD).
+    points_earned: the points awarded for this meow.
+    """
+    user_id = int(user_id)
+    points_earned = int(points_earned)
+    day_date = str(day_date)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("""
+        INSERT INTO daily_meow_stats (user_id, day_date, meow_count, points_earned)
+        VALUES (?, ?, 1, ?)
+        ON CONFLICT(user_id, day_date) DO UPDATE SET
+            meow_count = meow_count + 1,
+            points_earned = points_earned + excluded.points_earned
+    """, (user_id, day_date, points_earned))
+    connection.commit()
+    connection.close()
+
+
+def get_top_daily_meowers(day_date, limit=10):
+    """Top users by points_earned on the given day_date."""
+    day_date = str(day_date)
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("""
+        SELECT d.user_id, d.meow_count, d.points_earned,
+               u.first_name, u.username
+        FROM daily_meow_stats d
+        LEFT JOIN users u ON u.user_id = d.user_id
+        WHERE d.day_date = ?
+        ORDER BY d.points_earned DESC, d.meow_count DESC
+        LIMIT ?
+    """, (day_date, int(limit)))
+    rows = cursor.fetchall()
+    connection.close()
+    return rows
+
+
+def save_season_result(season_id, user_id, meow_points, final_rank, chat_id=None):
+    connection = get_connection()
+    cursor = connection.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute("""
+        INSERT INTO season_results
+            (season_id, user_id, chat_id, meow_points, final_rank, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (int(season_id), int(user_id), chat_id, int(meow_points), int(final_rank), now))
     connection.commit()
     connection.close()
 
