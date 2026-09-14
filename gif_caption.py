@@ -215,10 +215,14 @@ def _draw_caption(frame: "Image.Image", text: str) -> "Image.Image":
         widths.append(bb[2] - bb[0])
         line_heights.append(bb[3] - bb[1])
 
-    gap = max(2, int(img.height * 0.008))
+    gap = max(4, int(img.height * 0.012))
     total_h = sum(line_heights) + gap * (len(lines) - 1)
-    margin_bottom = max(8, int(img.height * 0.04))
+    # فاصله از لبه پایین — متن کمی بالاتر تا نچسبد به لبه
+    margin_bottom = max(16, int(img.height * 0.12))
     y = img.height - margin_bottom - total_h
+    # حداقل فاصله از بالا برای متن‌های خیلی بلند
+    if y < int(img.height * 0.45):
+        y = int(img.height * 0.45)
 
     stroke = max(3, int(min(img.width, img.height) / 80))
     for ln, w, h in zip(lines, widths, line_heights):
