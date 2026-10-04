@@ -1,43 +1,89 @@
 # ==========================================
-# 🪟 Glass UI — Inline Keyboards
+# 🪟 Glass UI — Inline Keyboards (Bale-compatible)
 # ==========================================
-# ظاهر شیشه‌ای: دکمه‌های زیاد، چیدمان تمیز، ایموجی
+# در python-bale-bot:
+#   markup.add(InlineKeyboardButton(...), row=1)
+# فقط یک دکمه در هر فراخوانی + row عدد طبیعی (>=1)
 
 from bale import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def glass(*rows):
+def glass(*rows) -> InlineKeyboardMarkup:
     """
-    ساخت کیبورد شیشه‌ای.
-    هر row: لیست از (text, callback_data)
-    یا یک دکمه: (text, callback_data)
+    ساخت کیبورد شیشه‌ای سازگار با Bale.
+
+    هر آرگومان یک ردیف است:
+      - لیست/تاپل از (text, callback_data)
+      - یا یک (text, callback_data) تکی
+
+    مثال:
+      glass(
+        [("A", "a"), ("B", "b")],   # ردیف 1: دو دکمه
+        [("C", "c")],               # ردیف 2: یک دکمه
+      )
     """
     kb = InlineKeyboardMarkup()
+    row_num = 1
+
     for row in rows:
         if not row:
             continue
-        # single button passed as tuple
-        if isinstance(row, tuple) and len(row) == 2 and isinstance(row[0], str):
-            kb.add(InlineKeyboardButton(text=row[0], callback_data=row[1]))
+
+        # تک‌دکمه به صورت tuple: ("text", "data")
+        if (
+            isinstance(row, tuple)
+            and len(row) == 2
+            and isinstance(row[0], str)
+            and isinstance(row[1], str)
+        ):
+            items = [row]
+        elif isinstance(row, (list, tuple)):
+            items = list(row)
+        else:
             continue
-        buttons = []
-        for item in row:
-            if isinstance(item, tuple) and len(item) == 2:
-                buttons.append(InlineKeyboardButton(text=item[0], callback_data=item[1]))
-        if buttons:
-            kb.add(*buttons)
+
+        for item in items:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            text, data = item[0], item[1]
+            if not isinstance(text, str) or not isinstance(data, str):
+                continue
+            # مهم: فقط یک دکمه + row عددی
+            kb.add(
+                InlineKeyboardButton(text=text, callback_data=data),
+                row=row_num,
+            )
+
+        row_num += 1
+
     return kb
 
 
-def glass_url(*rows):
-    """دکمه‌های لینک‌دار."""
+def glass_url(*rows) -> InlineKeyboardMarkup:
+    """دکمه‌های لینک‌دار — همان قوانین row."""
     kb = InlineKeyboardMarkup()
+    row_num = 1
     for row in rows:
-        buttons = []
-        for text, url in row:
-            buttons.append(InlineKeyboardButton(text=text, url=url))
-        if buttons:
-            kb.add(*buttons)
+        if not row:
+            continue
+        if (
+            isinstance(row, tuple)
+            and len(row) == 2
+            and isinstance(row[0], str)
+            and isinstance(row[1], str)
+        ):
+            items = [row]
+        else:
+            items = list(row)
+        for item in items:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            text, url = item[0], item[1]
+            kb.add(
+                InlineKeyboardButton(text=text, url=url),
+                row=row_num,
+            )
+        row_num += 1
     return kb
 
 
@@ -56,7 +102,9 @@ def main_menu_kb():
 
 
 def back_main_kb():
-    return glass([("🏠 منوی اصلی", "menu:main")])
+    return glass(
+        [("🏠 منوی اصلی", "menu:main")],
+    )
 
 
 def profile_kb():
@@ -72,7 +120,7 @@ def profile_kb():
 def pet_home_kb(has_pet=True, awaiting=False):
     if awaiting:
         return glass(
-            [("✏️ نام بفرست (در چت)", "pet:await_hint")],
+            [("✏️ نام را در چت بفرست", "pet:await_hint")],
             [("🏠 منوی اصلی", "menu:main")],
         )
     if not has_pet:
@@ -139,8 +187,11 @@ def bank_cancel_kb():
 # ---------- Shop ----------
 def shop_kb(items):
     rows = []
-    for it in items[:12]:
-        rows.append([(f"🛒 {it.get('name','?')} — {it.get('price',0)}🪙", f"shop:buy:{it['item_id']}")])
+    for it in (items or [])[:12]:
+        name = it.get("name") or it.get("item_id") or "?"
+        price = it.get("price", 0)
+        item_id = it.get("item_id") or "x"
+        rows.append([(f"🛒 {name} — {price}🪙", f"shop:buy:{item_id}")])
     rows.append([("🎒 اینونتوری", "shop:inv"), ("🏠 منوی اصلی", "menu:main")])
     return glass(*rows)
 
@@ -163,7 +214,7 @@ def rank_kb():
     )
 
 
-# ---------- Owner extras ----------
+# ---------- Owner ----------
 def owner_nav_kb():
     return glass(
         [("📊 Dashboard", "owner:dashboard"), ("🖥 Status", "owner:status")],
