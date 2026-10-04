@@ -1,5 +1,7 @@
 python-bale-bot
+asyncpg
 Pillow
 imageio-ffmpeg
 arabic-reshaper
 python-bidi
+aiofiles
