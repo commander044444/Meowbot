@@ -1,119 +1,55 @@
-# 🐱 MeowBot v2.0
+# 🐱 MeowBot v2.0 (Glass UI)
 
-Social Game / Entertainment / Community Bot برای **Bale**  
-آماده برای استقرار روی **Railway.com** با **PostgreSQL**
+ربات اجتماعی / بازی برای **Bale** — آماده **Railway + PostgreSQL**
 
-## ویژگی‌های اصلی
+## UI شیشه‌ای 🪟
 
-- 🐱 سیستم Meow با XP/Point، Cooldown، Anti-Spam و Anti-Repetition
-- 🤖 Interaction ON/OFF مستقل برای هر گروه
-- 💡 Auto Guide هوشمند (مستقل از Interaction)
-- 🐾 Pet System کامل
-- 💰 Economy + Bank + Shop + Inventory
-- ⚔️ Battle
-- 🎮 Mini Games
-- 🎯 Missions + 🏆 Achievements
-- 📅 Season System (فقط رنکینگ فصل ریست می‌شود؛ داده‌های دائمی حفظ می‌شوند)
-- 🎉 Events
-- 👑 Owner Panel حرفه‌ای + Permission System
-- 💾 Backup / Health Check / Monitoring
-- 🗄 PostgreSQL با Connection Pool
+تقریباً همه کارها با **دکمه اینلاین** انجام می‌شود:
 
-## ساختار
+- منوی اصلی چندردیفه
+- Pet / Battle / Bank / Shop / Games / Ranking
+- Owner Panel کامل با دکمه
+- پروفایل، مأموریت، دستاورد، جایزه روزانه
 
-```
-MeowBot/
-├── main.py
-├── config.py
-├── requirements.txt
-├── database/          # PostgreSQL layer
-├── core/              # Meow, facts, truths, dares
-├── admin/             # Owner Panel
-├── guides/            # Auto Guide scheduler
-├── seasons/           # Season scheduler
-├── economy/ pet/ battle/ games/ ...
-└── utils/
-```
+`/start` بزن و از دکمه‌ها استفاده کن.
 
-## نصب و اجرا (Railway)
+## راه‌اندازی Railway
 
-### 1. PostgreSQL
-در Railway یک PostgreSQL Plugin اضافه کنید.  
-متغیر `DATABASE_URL` به‌صورت خودکار ست می‌شود.
+1. PostgreSQL اضافه کن
+2. متغیرها:
+   - `DATABASE_URL` → از پلاگین PostgreSQL (خودت می‌ذاری)
+   - اختیاری: `BOT_TOKEN` / `OWNER_ID`
+3. Start: `python main.py`
 
-### 2. Environment Variables
-| Variable | توضیح |
-|----------|--------|
-| `BOT_TOKEN` | توکن ربات بله (یا از config) |
-| `DATABASE_URL` | از Railway PostgreSQL |
-| `OWNER_ID` | آیدی عددی مالک |
+در `config.py` مقدار پیش‌فرض `DATABASE_URL` هست؛ روی Railway با env جایگزین می‌شود.
 
-### 3. Deploy
-- Root Directory: پوشه پروژه
-- Start Command: `python main.py`
-- Python version: 3.11+
+## دستورات متنی (اختیاری)
 
-### 4. Local
-```bash
-pip install -r requirements.txt
-# DATABASE_URL را ست کنید
-export DATABASE_URL=postgresql://user:pass@localhost:5432/meowbot
-python main.py
-```
-
-## Season Reset — قانون مهم
-
-وقتی فصل تمام می‌شود:
-- ✅ فقط `meow_points` (رنکینگ فصل) ریست می‌شود
-- ❌ سکه، Pet، Inventory، Achievement، Level دائمی، Profile پاک نمی‌شوند
-- تاریخچه فصل‌های قبلی در `season_results` نگه داشته می‌شود
-
-## Owner Panel
-
-در PV ربات بفرستید:
-```
-/owner
-```
-یا `پنل مالک`
-
-بخش‌ها: Dashboard، System Status، Tests، Users، Groups، Admins، Logs، Backup و ...
-
-## Interaction vs Auto Guide
-
-| سیستم | مستقل؟ | پیش‌فرض |
-|--------|--------|---------|
-| Interaction | بله | ON |
-| Auto Guide | بله | ON هر ۱ ساعت |
-
-خاموش کردن Interaction، Auto Guide را خاموش **نمی‌کند**.
-
-## دستورات سریع
-
-| دستور | کار |
-|--------|-----|
+| متن | کار |
+|-----|-----|
 | میو | امتیاز |
-| پروفایل | وضعیت |
-| رنکینگ | رتبه فصل |
+| /start | منوی شیشه‌ای |
 | /owner | پنل مالک |
-| /addcoin ID N | اضافه کردن کوین (Owner) |
-| /addpoint ID N | اضافه کردن پوینت (Owner) |
-| /addgym ID N | تغییر لول باشگاه (Owner) |
+| پروفایل / رنکینگ / پت / بتل / بانک | میانبر منو |
 
-## امنیت
+## Season
 
-- Permission checks برای تمام عملیات حساس
-- Owner قابل حذف نیست
-- Audit log برای عملیات ادمین
-- SQL injection protection با asyncpg parameters
+فقط `meow_points` ریست می‌شود. سکه، Pet، Achievement و Level دائمی حفظ می‌شوند.
 
-## عیب‌یابی
+## ساختار اصلی
 
-1. **DB connection fail** → `DATABASE_URL` را چک کنید (باید `postgresql://` باشد)
-2. **Bot offline** → `BOT_TOKEN` را در Environment یا config چک کنید
-3. **Guide ارسال نمی‌شود** → `guide_enabled` و `guide_interval` گروه را ببینید
+```
+main.py
+config.py
+database/     # PostgreSQL async
+core/         # meow + menu
+pet/system.py
+battle/system.py
+economy/bank_ui.py
+games/system.py
+admin/panel.py
+guides/ + seasons/ schedulers
+utils/keyboards.py   # Glass UI
+```
 
-## نسخه
-
-`2.0.0` — Upgrade از SQLite به PostgreSQL + معماری ماژولار
-
-مقادیر واقعی config (Token، Owner ID، تنظیمات) حفظ شده‌اند.
+نسخه: **2.0.0**
