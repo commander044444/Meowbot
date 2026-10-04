@@ -218,11 +218,13 @@ def rank_kb():
 def owner_nav_kb():
     return glass(
         [("📊 Dashboard", "owner:dashboard"), ("🖥 Status", "owner:status")],
-        [("🧪 Tests", "owner:tests"), ("👥 Users", "owner:users")],
+        [("🧪 Tests", "owner:tests"), ("📡 Ping", "owner:ping")],
+        [("👥 Users", "owner:users"), ("🔍 Find User", "owner:user_find")],
         [("💬 Groups", "owner:groups"), ("🛡 Admins", "owner:admins")],
-        [("💰 Economy", "owner:economy"), ("📅 Seasons", "owner:seasons")],
-        [("💡 Guides", "owner:guides"), ("💾 Backup", "owner:backup")],
-        [("📜 Logs", "owner:logs"), ("⚙️ Settings", "owner:settings")],
-        [("📢 Broadcast", "owner:broadcast"), ("🔧 Maintenance", "owner:maint")],
+        [("💰 Economy", "owner:economy"), ("🐾 Pets", "owner:pets")],
+        [("⚔️ Battles", "owner:battles"), ("📅 Seasons", "owner:seasons")],
+        [("💡 Guides", "owner:guides"), ("📢 Broadcast", "owner:broadcast")],
+        [("📜 Logs", "owner:logs"), ("💾 Backup", "owner:backup")],
+        [("⚙️ Settings", "owner:settings"), ("🚧 Maintenance", "owner:maint")],
         [("🔙 بستن", "owner:close")],
     )
