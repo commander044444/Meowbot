@@ -110,7 +110,7 @@ async def on_message(message: Message):
         if not author:
             return
 
-        user_id = author.id
+        user_id = int(author.id)
         first_name = getattr(author, "first_name", None) or "Unknown"
         username = getattr(author, "username", None) or ""
         private = not (chat_title or chat_username)
@@ -122,13 +122,22 @@ async def on_message(message: Message):
                 pass
 
         try:
-            await create_user(user_id, first_name=first_name, username=username, chat_id=chat_id)
+            await create_user(int(user_id), first_name=first_name, username=username, chat_id=chat_id)
         except Exception:
             pass
 
         # ---- Start / Menu (Glass) ----
         if text in ("/start", "start", "منو", "شروع", "/menu"):
-            await message.reply(WELCOME, components=main_menu_kb())
+            try:
+                kb = main_menu_kb()
+                await message.reply(WELCOME, components=kb)
+            except Exception as e:
+                logger.error(f"start menu kb error: {e}")
+                # fallback without keyboard so user is not stuck
+                await message.reply(
+                    WELCOME + "\n\n⚠️ منوی دکمه‌ای موقتاً در دسترس نیست.\n"
+                    f"خطا: `{type(e).__name__}`"
+                )
             return
 
         # ---- Owner Panel ----
@@ -213,7 +222,7 @@ async def on_message(message: Message):
         if is_meow(text):
             if not private and not is_allowed_group(chat_id, chat_username):
                 return
-            ok, msg, pts = await register_meow(user_id, first_name, username, chat_id)
+            ok, msg, pts = await register_meow(int(user_id), first_name, username, chat_id)
             await message.reply(msg, components=main_menu_kb())
             return
 
