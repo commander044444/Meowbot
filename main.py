@@ -1,58 +1,70 @@
 # ==========================================
-# 🐱 MeowBot v2.0 - Main (PostgreSQL + Modular)
-# ==========================================
-# Bale Bot | Railway-ready | Production
+# 🐱 MeowBot v2.0 — Main (Glass UI + PostgreSQL)
 # ==========================================
 
-import asyncio
 import logging
 import time
 import traceback
-from datetime import datetime
 
 from bale import Bot, Message, CallbackQuery
 
-from config import BOT_TOKEN, OWNER_ID, BOT_NAME, BOT_VERSION
+from config import BOT_TOKEN, OWNER_ID, BOT_NAME, BOT_VERSION, MAX_GYM_LEVEL
 
 from database import init_database
 from database.users import (
-    create_user, get_user, get_dashboard_stats,
+    create_user, get_user,
     admin_set_meow_coins, admin_set_meow_points, admin_set_gym_level,
 )
-from database.groups import register_group, get_interaction, set_interaction
-from database.admins import is_owner, has_permission, list_admins
+from database.groups import register_group, set_interaction
+from database.admins import is_owner, has_permission
 from database.logs import log_action
 from database.achievements import seed_achievements
 from database.missions import seed_missions
-from database.inventory import seed_shop
+from database.inventory import seed_shop, get_shop_items, add_item
+from database.users import spend_meow_coins, get_meow_coins
 
 from core.meow import is_meow, is_allowed_group, register_meow
+from core.menu import WELCOME, handle_menu_callback
+from utils.keyboards import main_menu_kb, shop_kb, back_main_kb
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("meowbot")
 
 bot = Bot(token=BOT_TOKEN)
 _start_time = time.time()
 
 
-def uptime_str() -> str:
-    s = int(time.time() - _start_time)
-    h, rem = divmod(s, 3600)
-    m, sec = divmod(rem, 60)
-    return f"{h}h {m}m {sec}s"
+async def _edit_or_reply(target, text, kb=None):
+    """Edit callback message or reply."""
+    try:
+        if hasattr(target, "edit") and kb is not None:
+            await target.edit(text, components=kb)
+            return
+        if hasattr(target, "edit") and kb is None:
+            await target.edit(text)
+            return
+        if hasattr(target, "edit_text"):
+            if kb is not None:
+                await target.edit_text(text, components=kb)
+            else:
+                await target.edit_text(text)
+            return
+    except Exception as e:
+        logger.debug(f"edit failed: {e}")
+    try:
+        if hasattr(target, "reply"):
+            if kb is not None:
+                await target.reply(text, components=kb)
+            else:
+                await target.reply(text)
+    except Exception as e:
+        logger.warning(f"reply failed: {e}")
 
-
-# ==========================================
-# Startup
-# ==========================================
 
 @bot.event
 async def on_ready():
     print("=" * 55)
-    print(f"🐱 {BOT_NAME} v{BOT_VERSION} ONLINE")
+    print(f"🐱 {BOT_NAME} v{BOT_VERSION} ONLINE (Glass UI)")
     print("=" * 55)
     try:
         await init_database()
@@ -64,28 +76,23 @@ async def on_ready():
         print(f"❌ Database init failed: {e}")
         traceback.print_exc()
 
-    # Start background schedulers
     try:
         from guides.scheduler import start_guide_scheduler
         start_guide_scheduler(bot)
-        print("✅ Auto Guide scheduler started")
+        print("✅ Auto Guide scheduler")
     except Exception as e:
         print(f"⚠️ Guide scheduler: {e}")
 
     try:
         from seasons.scheduler import start_season_scheduler
         start_season_scheduler(bot)
-        print("✅ Season scheduler started")
+        print("✅ Season scheduler")
     except Exception as e:
         print(f"⚠️ Season scheduler: {e}")
 
-    print(f"👑 Owner ID: {OWNER_ID}")
+    print(f"👑 Owner: {OWNER_ID}")
     print("=" * 55)
 
-
-# ==========================================
-# Messages
-# ==========================================
 
 @bot.event
 async def on_message(message: Message):
@@ -108,183 +115,232 @@ async def on_message(message: Message):
         username = getattr(author, "username", None) or ""
         private = not (chat_title or chat_username)
 
-        # Register group
         if chat_id and (chat_title or chat_username):
             try:
                 await register_group(chat_id, chat_title, chat_username or "")
-            except Exception as e:
-                logger.warning(f"group register: {e}")
+            except Exception:
+                pass
 
-        # Ensure user exists
         try:
             await create_user(user_id, first_name=first_name, username=username, chat_id=chat_id)
         except Exception:
             pass
 
-        # ---------- Start / Menu ----------
-        if text in ("/start", "start", "منو", "شروع"):
-            welcome = (
-                f"🐱 سلام {first_name}!\n\n"
-                f"به **{BOT_NAME}** خوش اومدی 🎀\n\n"
-                f"✨ می‌تونی:\n"
-                f"• میو کنی و امتیاز بگیری\n"
-                f"• Pet داشته باشی\n"
-                f"• Battle کنی\n"
-                f"• کوین جمع کنی و Bank داشته باشی\n"
-                f"• در فصل شرکت کنی\n\n"
-                f"📖 راهنما رو از منو ببین!\n"
-                f"نسخه: {BOT_VERSION}"
-            )
-            await message.reply(welcome)
+        # ---- Start / Menu (Glass) ----
+        if text in ("/start", "start", "منو", "شروع", "/menu"):
+            await message.reply(WELCOME, components=main_menu_kb())
             return
 
-        # ---------- Owner Panel ----------
+        # ---- Owner Panel ----
         if text in ("/owner", "owner", "پنل مالک", "👑") and await is_owner(user_id):
             from admin.panel import show_owner_panel
             await show_owner_panel(message)
             return
 
-        # ---------- Admin economy commands ----------
-        admin_prefixes = ("/addcoin", "/addpoint", "/addgym", "addcoin", "addpoint", "addgym")
+        # ---- Admin economy ----
         lower = text.lower()
-        for p in admin_prefixes:
+        for p in ("/addcoin", "/addpoint", "/addgym", "addcoin", "addpoint", "addgym"):
             if lower.startswith(p + " ") or lower == p:
                 if not await is_owner(user_id):
-                    await message.reply("⛔ فقط Owner می‌تواند از این دستور استفاده کند.")
+                    await message.reply("⛔ فقط Owner.")
                     return
                 parts = text[len(p):].strip().split()
                 if len(parts) != 2:
-                    await message.reply("❌ فرمت: /addcoin USER_ID AMOUNT")
+                    await message.reply("❌ `/addcoin USER_ID AMOUNT`")
                     return
                 try:
                     tid, delta = int(parts[0]), int(parts[1])
                 except ValueError:
-                    await message.reply("❌ ID و مقدار باید عدد باشند.")
+                    await message.reply("❌ عدد نامعتبر.")
                     return
                 target = await get_user(tid)
                 if not target:
-                    await message.reply(f"❌ کاربر `{tid}` پیدا نشد.")
+                    await message.reply(f"❌ کاربر `{tid}` نیست.")
                     return
                 cmd = p.lstrip("/").lower()
                 if cmd == "addcoin":
                     old = int(target.get("meow_coins") or 0)
                     ok, o, n = await admin_set_meow_coins(tid, max(0, old + delta))
-                    field = "🪙 Meow Coin"
+                    field = "🪙"
                 elif cmd == "addpoint":
                     old = int(target.get("meow_points") or 0)
                     ok, o, n = await admin_set_meow_points(tid, max(0, old + delta))
-                    field = "⭐ Meow Point"
+                    field = "⭐"
                 else:
-                    from config import MAX_GYM_LEVEL
                     old = int(target.get("gym_level") or 1)
                     ok, o, n = await admin_set_gym_level(tid, max(1, min(MAX_GYM_LEVEL, old + delta)))
-                    field = "🏋️ Gym Level"
+                    field = "🏋️"
                 await log_action(user_id, cmd, str(tid), {"delta": delta, "old": o, "new": n})
-                await message.reply(
-                    f"✅ {field}\n👤 `{tid}`\n📌 قبل: {o}\n📌 بعد: {n}"
-                )
+                await message.reply(f"✅ {field} `{tid}`\n{o} → {n}", components=main_menu_kb())
                 return
 
-        # ---------- Meow ----------
+        # ---- Pet name input (private) ----
+        if private:
+            from pet.system import handle_name_input, try_call_pet
+            name_text, name_kb = await handle_name_input(user_id, text)
+            if name_text is not None:
+                if name_kb:
+                    await message.reply(name_text, components=name_kb)
+                else:
+                    await message.reply(name_text)
+                return
+            call = await try_call_pet(user_id, text)
+            if call:
+                await message.reply(call)
+                return
+
+        # ---- Bank pending amount ----
+        from economy.bank_ui import handle_amount_input
+        bank_text, bank_kb = await handle_amount_input(user_id, text)
+        if bank_text is not None:
+            if bank_kb:
+                await message.reply(bank_text, components=bank_kb)
+            else:
+                await message.reply(bank_text)
+            return
+
+        # ---- Games guess input ----
+        from games.system import handle_guess_input
+        g_text, g_kb = await handle_guess_input(user_id, text)
+        if g_text is not None:
+            if g_kb:
+                await message.reply(g_text, components=g_kb)
+            else:
+                await message.reply(g_text)
+            return
+
+        # ---- Meow ----
         if is_meow(text):
             if not private and not is_allowed_group(chat_id, chat_username):
                 return
             ok, msg, pts = await register_meow(user_id, first_name, username, chat_id)
-            await message.reply(msg)
+            await message.reply(msg, components=main_menu_kb())
             return
 
-        # ---------- Profile ----------
-        if text in ("پروفایل", "profile", "/profile", "پرفایل"):
-            u = await get_user(user_id)
-            if not u:
-                await message.reply("❌ اول یک میو بزن تا ثبت بشی!")
-                return
-            profile = (
-                f"🐱 **پروفایل {first_name}**\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"⭐ Level: {u.get('level', 1)}\n"
-                f"✨ XP: {u.get('xp', 0)}\n"
-                f"🐾 Meow Points: {u.get('meow_points', 0)}\n"
-                f"🪙 Meow Coins: {u.get('meow_coins', 0)}\n"
-                f"🏋️ Gym: {u.get('gym_level', 1)}\n"
-                f"⚔️ Battles: {u.get('total_battles', 0)} "
-                f"(W:{u.get('total_wins', 0)} L:{u.get('total_losses', 0)})\n"
-                f"📊 Total Meows: {u.get('total_meows', 0)}\n"
-                f"🔥 Daily Streak: {u.get('daily_streak', 0)}\n"
-                f"━━━━━━━━━━━━━━"
-            )
-            await message.reply(profile)
+        # ---- Text shortcuts (still open glass menu) ----
+        shortcuts = {
+            "پروفایل": "menu:profile", "profile": "menu:profile", "/profile": "menu:profile",
+            "رنکینگ": "menu:rank", "رتبه": "menu:rank", "ranking": "menu:rank",
+            "راهنما": "menu:guide", "help": "menu:guide", "/help": "menu:guide",
+            "پت": "pet:home", "pet": "pet:home",
+            "بتل": "battle:home", "battle": "battle:home", "نبرد": "battle:home",
+            "بانک": "bank:home", "bank": "bank:home",
+            "فروشگاه": "shop:home", "shop": "shop:home",
+            "بازی": "games:home", "games": "games:home",
+            "روزانه": "menu:daily", "daily": "menu:daily",
+        }
+        key = text.lower() if text.isascii() else text
+        if key in shortcuts or text in shortcuts:
+            data = shortcuts.get(text) or shortcuts.get(key)
+            await _route_callback_data(message, user_id, data, first_name, username)
             return
 
-        # ---------- Ranking ----------
-        if text in ("رنکینگ", "رتبه", "ranking", "/rank", "رنک"):
-            from database.users import get_top_users
-            top = await get_top_users(limit=10)
-            if not top:
-                await message.reply("📭 هنوز کسی در رنکینگ نیست. میو کنید!")
-                return
-            lines = ["🏆 **رنکینگ فصل فعلی**\n━━━━━━━━━━━━━━"]
-            medals = ["🥇", "🥈", "🥉"]
-            for i, u in enumerate(top):
-                medal = medals[i] if i < 3 else f"{i+1}."
-                name = u.get("first_name") or u.get("username") or str(u["user_id"])
-                lines.append(f"{medal} {name} — {u.get('meow_points', 0)} 🐾")
-            await message.reply("\n".join(lines))
-            return
-
-        # ---------- Interaction toggle (admin in group) ----------
+        # Interaction toggle
         if text in ("interaction on", "اینترکشن روشن", "/interaction_on"):
             if await has_permission(user_id, "groups.edit") or await is_owner(user_id):
                 await set_interaction(chat_id, True)
-                await message.reply("✅ Interaction روشن شد.")
+                await message.reply("✅ Interaction روشن شد.", components=main_menu_kb())
             return
         if text in ("interaction off", "اینترکشن خاموش", "/interaction_off"):
             if await has_permission(user_id, "groups.edit") or await is_owner(user_id):
                 await set_interaction(chat_id, False)
-                await message.reply("🔇 Interaction خاموش شد. (Auto Guide مستقل است)")
-            return
-
-        # ---------- Help ----------
-        if text in ("راهنما", "help", "/help", "کمک"):
-            help_text = (
-                "📖 **راهنمای MeowBot**\n"
-                "━━━━━━━━━━━━━━\n"
-                "🐱 `میو` — امتیاز بگیر\n"
-                "👤 `پروفایل` — وضعیت تو\n"
-                "🏆 `رنکینگ` — رتبه فصل\n"
-                "🐾 Pet — در PV با ربات حرف بزن\n"
-                "⚔️ Battle — به‌زودی در منو\n"
-                "🏦 Bank — به‌زودی در منو\n"
-                "💡 Auto Guide هر ساعت نکته یاد می‌ده\n"
-                "━━━━━━━━━━━━━━\n"
-                f"نسخه {BOT_VERSION}"
-            )
-            await message.reply(help_text)
+                await message.reply("🔇 Interaction خاموش (Guide مستقل است).", components=main_menu_kb())
             return
 
     except Exception as e:
-        logger.error(f"on_message error: {e}")
+        logger.error(f"on_message: {e}")
         traceback.print_exc()
         try:
             if int(getattr(message.author, "id", 0)) == int(OWNER_ID):
-                await message.reply(f"⚠️ Error: {e}")
+                await message.reply(f"⚠️ {e}")
         except Exception:
             pass
 
 
-# ==========================================
-# Callbacks
-# ==========================================
+async def _route_callback_data(message, user_id, data, first_name="", username=""):
+    """Route as if callback pressed (from text shortcut)."""
+    text, kb = await _dispatch(user_id, data, first_name, username)
+    if kb is not None:
+        await message.reply(text, components=kb)
+    else:
+        await message.reply(text)
+
+
+async def _dispatch(user_id, data: str, first_name="", username=""):
+    # Menu
+    if data.startswith("menu:") or data.startswith("act:") or data.startswith("rank:"):
+        return await handle_menu_callback(user_id, data, first_name)
+
+    # Pet
+    if data.startswith("pet:"):
+        from pet.system import handle_pet_callback
+        return await handle_pet_callback(user_id, data, first_name, username)
+
+    # Battle
+    if data.startswith("battle:"):
+        from battle.system import handle_battle_callback
+        return await handle_battle_callback(user_id, data, first_name)
+
+    # Bank
+    if data.startswith("bank:"):
+        from economy.bank_ui import handle_bank_callback
+        return await handle_bank_callback(user_id, data)
+
+    # Games
+    if data.startswith("games:"):
+        from games.system import handle_games_callback
+        return await handle_games_callback(user_id, data)
+
+    # Shop
+    if data == "shop:home":
+        items = await get_shop_items()
+        if not items:
+            return "🛒 فروشگاه خالی است.", back_main_kb()
+        lines = ["🛒 **فروشگاه میویی**\n━━━━━━━━━━━━━━"]
+        for it in items:
+            lines.append(f"• {it.get('name')} — `{it.get('price')}`🪙 ({it.get('rarity')})")
+        return "\n".join(lines), shop_kb(items)
+
+    if data.startswith("shop:buy:"):
+        item_id = data.split(":", 2)[-1]
+        items = await get_shop_items()
+        item = next((i for i in items if i["item_id"] == item_id), None)
+        if not item:
+            return "❌ آیتم پیدا نشد.", back_main_kb()
+        price = int(item["price"])
+        if await get_meow_coins(user_id) < price:
+            return f"❌ کوین کافی نیست. قیمت: `{price}`", shop_kb(items)
+        if not await spend_meow_coins(user_id, price):
+            return "❌ خطا در پرداخت.", shop_kb(items)
+        await add_item(user_id, item_id, item.get("item_type") or "item", 1, item.get("effect") or {})
+        return f"✅ **{item.get('name')}** خریدی!\n🪙 -{price}", shop_kb(items)
+
+    if data == "shop:inv":
+        from database.inventory import get_inventory
+        inv = await get_inventory(user_id)
+        if not inv:
+            return "🎒 اینونتوری خالی است.", back_main_kb()
+        lines = ["🎒 **اینونتوری**\n━━━━━━━━━━━━━━"]
+        for it in inv:
+            lines.append(f"• {it.get('item_id')} ×{it.get('quantity')}")
+        return "\n".join(lines), back_main_kb()
+
+    return WELCOME, main_menu_kb()
+
 
 @bot.event
 async def on_callback(callback: CallbackQuery):
     try:
-        data = callback.data or ""
+        data = (callback.data or "").strip()
         user = callback.from_user
         if not user:
             return
         user_id = user.id
+        first_name = getattr(user, "first_name", None) or ""
+        username = getattr(user, "username", None) or ""
+        msg = callback.message
 
+        # Owner panel
         if data.startswith("owner:"):
             if not await is_owner(user_id):
                 await callback.answer("⛔ فقط Owner", show_alert=True)
@@ -293,15 +349,21 @@ async def on_callback(callback: CallbackQuery):
             await handle_owner_callback(bot, callback, data)
             return
 
-        await callback.answer()
+        text, kb = await _dispatch(user_id, data, first_name, username)
+        await _edit_or_reply(msg, text, kb)
+        try:
+            await callback.answer()
+        except Exception:
+            pass
+
     except Exception as e:
-        logger.error(f"callback error: {e}")
+        logger.error(f"callback: {e}")
         traceback.print_exc()
+        try:
+            await callback.answer("خطا!", show_alert=True)
+        except Exception:
+            pass
 
-
-# ==========================================
-# Run
-# ==========================================
 
 if __name__ == "__main__":
     print(f"Starting {BOT_NAME} v{BOT_VERSION}...")
