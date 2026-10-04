@@ -6,6 +6,10 @@ import time
 from bale import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import OWNER_ID, BOT_VERSION, BOT_NAME
+try:
+    from utils.keyboards import owner_nav_kb
+except Exception:
+    owner_nav_kb = None
 from database.users import get_dashboard_stats, count_users
 from database.groups import count_groups, get_all_groups
 from database.admins import list_admins
@@ -17,16 +21,30 @@ _start = time.time()
 
 
 def _kb(rows):
+    """Bale-compatible: one button per add(), row is natural int >= 1."""
     kb = InlineKeyboardMarkup()
+    row_num = 1
     for row in rows:
-        buttons = []
+        if not row:
+            continue
         for text, data in row:
-            buttons.append(InlineKeyboardButton(text=text, callback_data=data))
-        kb.add_row(*buttons)
+            kb.add(
+                InlineKeyboardButton(text=str(text), callback_data=str(data)),
+                row=row_num,
+            )
+        row_num += 1
     return kb
 
 
 def main_keyboard():
+    if owner_nav_kb:
+        try:
+            return owner_nav_kb()
+        except Exception:
+            pass
+    return _main_keyboard_fallback()
+
+def _main_keyboard_fallback():
     return _kb([
         [("📊 Dashboard", "owner:dashboard"), ("🖥 Status", "owner:status")],
         [("🧪 Tests", "owner:tests"), ("👥 Users", "owner:users")],
