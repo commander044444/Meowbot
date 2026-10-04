@@ -146,6 +146,13 @@ async def on_message(message: Message):
             await show_owner_panel(message)
             return
 
+        # ---- Owner pending text (broadcast, add admin, economy, ...) ----
+        if await is_owner(user_id):
+            from admin.panel import handle_owner_text
+            handled = await handle_owner_text(bot, message, int(user_id), text)
+            if handled:
+                return
+
         # ---- Admin economy ----
         lower = text.lower()
         for p in ("/addcoin", "/addpoint", "/addgym", "addcoin", "addpoint", "addgym"):
