@@ -9,7 +9,7 @@ from config import BATTLE_COOLDOWN, BATTLE_WIN_REWARD, BATTLE_LOSE_REWARD, MAX_G
 from database.users import (
     get_user, create_user, get_gym_level, set_gym_level,
     add_meow_coins, get_last_battle, set_last_battle, update_user,
-    get_top_users, fetch as _noop,
+    get_top_users,
 )
 from database.pool import fetch
 from utils.keyboards import battle_home_kb, gym_kb, back_main_kb
