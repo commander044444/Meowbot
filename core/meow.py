@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from config import MEOW_COOLDOWN
 from database.users import (
     create_user, get_user, update_user, increment_daily_meow,
-    add_meow_points, set_last_meow, get_last_meow,
+    add_meow_points, set_last_meow, get_last_meow, get_meow_points,
 )
 from database.content import pick_unseen_index
 
@@ -22,22 +22,23 @@ MEOW_WORDS = {
     "میــــو", "میــــــو", "میاو", "میاوو", "mew", "meow",
 }
 
+# متن‌های متنوع — {name} {gained} {total}
 MEOW_RESPONSES = [
-    "🐱 میو~ {name} یه امتیاز گرفت!",
-    "🎀 میووو! آفرین {name} ✨",
-    "🌸 پیشی‌ها صداتو شنیدن {name}!",
-    "✨ میو میو~ +۱ پوینت برای {name}",
-    "🩷 چه میو قشنگی {name}!",
-    "🐱 هوم... بوی میو میاد از سمت {name} 😼",
-    "🐾 {name} داره میو می‌کنه و پوینت جمع می‌کنه!",
-    "😻 میووو~ عالی بود {name}!",
-    "🌟 یه میوی طلایی از {name}!",
-    "😹 {name} باز میو کرد، پیشی‌ها خوشحال شدن!",
-    "🐱 Meow! {name} +1",
-    "🎀 امروز هم میو کردی {name}، ادامه بده!",
-    "✨ پوینت میو برای {name} ثبت شد 🐾",
-    "🩷 میو میو میو~ {name} ستاره شد!",
-    "😼 گربه‌ها به احترام {name} میو کردن!",
+    "🐱 میو~ {name}!\n✨ +{gained} امتیاز\n🐾 میو فعلی: {total}",
+    "🎀 آفرین {name}!\n✨ +{gained} امتیاز میو\n🐾 مجموع امتیاز فصل: {total}",
+    "🌸 پیشی‌ها صداتو شنیدن {name}!\n✨ +{gained}\n🐾 امتیاز الان: {total}",
+    "✨ میو میو~\n👤 {name}\n🎁 گرفتی: +{gained}\n📊 موجودی میو: {total}",
+    "🩷 چه میو قشنگی {name}!\n✨ +{gained} امتیاز\n🐾 میو فعلی‌ات: {total}",
+    "🐱 بوی میو میاد از سمت {name} 😼\n✨ +{gained}\n🐾 کل امتیاز: {total}",
+    "🐾 {name} میو کرد!\n🎁 +{gained} امتیاز\n📊 میو فعلی: {total}",
+    "😻 عالی بود {name}!\n✨ +{gained}\n🐾 امتیاز فصل تو: {total}",
+    "🌟 میوی طلایی از {name}!\n✨ +{gained} امتیاز\n🐾 مجموع: {total}",
+    "😹 {name} باز میو کرد!\n✨ +{gained}\n🐾 میو فعلی: {total}",
+    "🐱 Meow!\n👤 {name}\n🎁 +{gained}\n📊 Total: {total}",
+    "🎀 امروز هم میو کردی {name}!\n✨ +{gained} امتیاز\n🐾 موجودی: {total}",
+    "✨ پوینت ثبت شد 🐾\n👤 {name}\n🎁 +{gained}\n📊 میو فعلی: {total}",
+    "🩷 میو میو میو~ {name}!\n✨ +{gained}\n🐾 امتیاز الان: {total}",
+    "😼 گربه‌ها به احترامت میو کردن {name}!\n✨ +{gained} امتیاز\n🐾 میو فعلی‌ات: {total}",
 ]
 
 
@@ -82,17 +83,24 @@ async def register_meow(user_id: int, first_name: str = "", username: str = "", 
     last = float(user.get("last_meow") or 0)
     remaining = MEOW_COOLDOWN - (now - last)
     if remaining > 0:
+        # در کول‌داون هم امتیاز فعلی را نشان بده
+        current = int(user.get("meow_points") or 0)
         msgs = [
-            f"🐱 هنوز زوده! {format_cooldown(remaining)} دیگه صبر کن 😴",
-            f"😼 آروم باش، {format_cooldown(remaining)} تا میوی بعدی مونده!",
-            f"💤 پیشی هنوز داره نفس می‌کشه... {format_cooldown(remaining)}",
-            f"⏳ Cooldown: {format_cooldown(remaining)}",
+            f"🐱 هنوز زوده! {format_cooldown(remaining)} دیگه صبر کن 😴\n🐾 میو فعلی‌ات: {current}",
+            f"😼 آروم باش، {format_cooldown(remaining)} تا میوی بعدی مونده!\n🐾 امتیاز فصل: {current}",
+            f"💤 پیشی هنوز داره نفس می‌کشه... {format_cooldown(remaining)}\n🐾 میو فعلی: {current}",
+            f"⏳ Cooldown: {format_cooldown(remaining)}\n🐾 میو فعلی‌ات: {current}",
         ]
         return False, random.choice(msgs), 0
 
     points = 1
     await add_meow_points(user_id, points, chat_id)
     await set_last_meow(user_id, now, chat_id)
+
+    # امتیاز فعلی بعد از اضافه شدن
+    total = await get_meow_points(user_id)
+    if total is None:
+        total = int(user.get("meow_points") or 0) + points
 
     day = datetime.now(TEHRAN).strftime("%Y-%m-%d")
     try:
@@ -101,16 +109,16 @@ async def register_meow(user_id: int, first_name: str = "", username: str = "", 
         pass
 
     idx = await pick_unseen_index(user_id, "meow_response", len(MEOW_RESPONSES))
-    name = first_name or user.get("first_name") or "پیشی"
-    msg = MEOW_RESPONSES[idx].format(name=name)
+    name = first_name or (user.get("first_name") if user else None) or "پیشی"
+    msg = MEOW_RESPONSES[idx].format(name=name, gained=points, total=total)
 
     try:
         from database.missions import update_mission_progress
         from database.achievements import update_achievement_progress
         u = await get_user(user_id)
-        total = int(u.get("total_meows") or 0)
+        total_meows = int(u.get("total_meows") or 0) if u else 0
         await update_mission_progress(user_id, "meows", 1)
-        await update_achievement_progress(user_id, "meows", total)
+        await update_achievement_progress(user_id, "meows", total_meows)
     except Exception:
         pass
 
