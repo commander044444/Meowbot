@@ -629,8 +629,20 @@ async def handle_owner_callback(bot, callback, data: str):
                 "در چت بفرست:\n"
                 "`event NAME | DAYS | XP_MULT | COIN_MULT`"
             )
+            # برای ساخت ایونت از دکمه استفاده شود — pending روی view ست نمی‌شود
+            await _edit(msg, "\n".join(lines), _kb([[("➕ ساخت ایونت", "owner:event_new")], [("🔙 منوی Owner", "owner:home")]]))
+            return
+
+        if action == "event_new":
             _pending[user_id] = {"action": "event_create"}
-            await _edit(msg, "\n".join(lines), back_nav())
+            await _edit(
+                msg,
+                "🎉 **ساخت ایونت**\n"
+                "فرمت:\n`نام | روز | xp_mult | coin_mult`\n"
+                "مثال:\n`جشن میو | 3 | 1.5 | 2`\n\n"
+                "برای لغو بنویس: `لغو`",
+                back_nav(),
+            )
             return
 
         # ========== BROADCAST ==========
@@ -847,6 +859,12 @@ async def handle_owner_text(bot, message, user_id: int, text: str) -> bool:
 
     action = pending.get("action")
     text = (text or "").strip()
+
+    # لغو هر pending
+    if text in ("لغو", "cancel", "/cancel", "انصراف"):
+        _pending.pop(user_id, None)
+        await message.reply("✅ لغو شد.", components=nav())
+        return True
 
     try:
         if action == "find_user":
