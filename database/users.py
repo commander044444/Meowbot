@@ -54,7 +54,7 @@ async def update_user(user_id: int, **fields):
     allowed = {
         "meow_points", "meow_coins", "gym_level", "xp", "level",
         "total_meows", "total_battles", "total_wins", "total_losses",
-        "last_meow", "last_battle", "last_daily", "daily_streak",
+        "last_meow", "last_battle", "last_daily", "daily_streak", "last_game_reward",
         "first_name", "username",
     }
     sets = []
