@@ -746,10 +746,44 @@ async def on_callback(callback: CallbackQuery):
             pass
 
 
+
+        if data.startswith("ap:"):
+            if not (await is_owner(user_id) or await is_admin(user_id)):
+                try:
+                    await callback.answer("⛔ ادمین", show_alert=True)
+                except Exception:
+                    pass
+                return
+            # فقط owner یا admins.manage
+            from admin.perms_mgmt import handle_ap_callback, require_perm
+            if not await is_owner(user_id) and not await require_perm(user_id, "admins.manage"):
+                try:
+                    await callback.answer("⛔ مجوز مدیریت ادمین ندارید", show_alert=True)
+                except Exception:
+                    pass
+                return
+            text, kb = await handle_ap_callback(data, user_id)
+            await _edit_or_reply(msg, text, kb)
+            return
+
         if data.startswith("um:"):
             if not (await is_owner(user_id) or await is_admin(user_id)):
                 try:
                     await callback.answer("⛔ ادمین", show_alert=True)
+                except Exception:
+                    pass
+                return
+            from admin.perms_mgmt import require_perm
+            parts_um = data.split(":")
+            um_cmd = parts_um[1] if len(parts_um) > 1 else ""
+            need = "users.view"
+            if um_cmd in ("ban", "ban_d", "unban"):
+                need = "users.ban"
+            elif um_cmd in ("coin_add", "coin_sub", "pt_add", "pt_sub", "gym", "msg"):
+                need = "users.edit"
+            if not await require_perm(user_id, need):
+                try:
+                    await callback.answer(f"⛔ مجوز {need} ندارید", show_alert=True)
                 except Exception:
                     pass
                 return
@@ -762,6 +796,13 @@ async def on_callback(callback: CallbackQuery):
             if not (await is_owner(user_id) or await is_admin(user_id)):
                 try:
                     await callback.answer("⛔ ادمین", show_alert=True)
+                except Exception:
+                    pass
+                return
+            from admin.perms_mgmt import require_perm
+            if not await require_perm(user_id, "tickets.manage"):
+                try:
+                    await callback.answer("⛔ مجوز تیکت ندارید", show_alert=True)
                 except Exception:
                     pass
                 return
@@ -835,6 +876,52 @@ async def on_callback(callback: CallbackQuery):
                 except Exception:
                     pass
                 return
+            # محدودیت دسترسی برای ادمین (نه Owner)
+            if not await is_owner(user_id):
+                from admin.perms_mgmt import require_perm
+                act = data.split(":", 1)[-1].split(":")[0] if ":" in data else ""
+                # owner:eco_all_coin -> eco_all_coin
+                perm_map = {
+                    "um_list": "users.view",
+                    "users": "users.view",
+                    "user_find": "users.view",
+                    "tickets": "tickets.manage",
+                    "bc_groups": "broadcast.send",
+                    "bc_users": "broadcast.send",
+                    "bc_admins": "broadcast.send",
+                    "broadcast": "broadcast.send",
+                    "economy": "economy.view",
+                    "eco_all_coin": "economy.edit",
+                    "eco_all_point": "economy.edit",
+                    "eco_one_coin": "economy.edit",
+                    "eco_one_point": "economy.edit",
+                    "eco_one_gym": "economy.edit",
+                    "admins": "admins.view",
+                    "admin_add": "admins.manage",
+                    "admin_remove": "admins.manage",
+                    "admin_toggle": "admins.manage",
+                    "logs": "logs.view",
+                    "backup": "database.backup",
+                    "backup_create": "database.backup",
+                    "groups": "groups.view",
+                    "group_set": "groups.edit",
+                    "seasons": "seasons.manage",
+                    "season_start": "seasons.manage",
+                    "season_end": "seasons.manage",
+                    "events": "events.manage",
+                    "guides": "guides.view",
+                    "guide_on_all": "guides.edit",
+                    "guide_off_all": "guides.edit",
+                    "maint": "maintenance.manage",
+                    "settings": "settings.manage",
+                }
+                need = perm_map.get(act)
+                if need and not await require_perm(user_id, need):
+                    try:
+                        await callback.answer(f"⛔ مجوز {need} ندارید", show_alert=True)
+                    except Exception:
+                        pass
+                    return
             from admin.panel import handle_owner_callback
             await handle_owner_callback(bot, callback, data)
             return
