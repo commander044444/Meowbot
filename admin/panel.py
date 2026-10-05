@@ -64,7 +64,8 @@ def nav():
     return _kb([
         [("📊 Dashboard", "owner:dashboard"), ("🖥 Status", "owner:status")],
         [("🧪 Tests", "owner:tests"), ("📡 Ping", "owner:ping")],
-        [("👥 Users", "owner:users"), ("🔍 Find User", "owner:user_find")],
+        [("👥 Users", "owner:users"), ("📋 لیست کاربران", "owner:um_list")],
+        [("🔍 Find User", "owner:user_find"), ("🎫 تیکت‌ها", "owner:tickets")],
         [("💬 Groups", "owner:groups"), ("⚙️ Group Set", "owner:group_set")],
         [("🛡 Admins", "owner:admins"), ("➕ Add Admin", "owner:admin_add")],
         [("💰 Economy", "owner:economy"), ("🐾 Pets", "owner:pets")],
@@ -811,6 +812,19 @@ async def handle_owner_callback(bot, callback, data: str):
                 "لغو: `لغو`",
                 back_nav(),
             )
+            return
+
+
+        if action == "um_list":
+            from admin.users_mgmt import users_list_page
+            text, kb = await users_list_page(0)
+            await _edit(msg, text, kb)
+            return
+
+        if action == "tickets":
+            from admin.tickets_panel import tickets_home
+            text, kb = await tickets_home()
+            await _edit(msg, text, kb)
             return
 
         await _edit(msg, f"❓ بخش ناشناخته: `{action}`", nav())
