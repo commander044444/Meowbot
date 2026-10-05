@@ -165,6 +165,35 @@ async def on_message(message: Message):
         except Exception:
             pass
 
+        # ---- بن: فقط پشتیبانی ----
+        try:
+            from database.bans import is_banned, get_active_ban
+            if await is_banned(int(user_id)):
+                from core.support import (
+                    support_kb, support_home_text, handle_sup_text, is_sup_pending,
+                )
+                # اجازه تیکت و دستورات پشتیبانی
+                if is_sup_pending(int(user_id)):
+                    if await handle_sup_text(bot, message, int(user_id), text):
+                        return
+                if text in ("/start", "start", "منو", "پشتیبانی", "تیکت", "/support", "support"):
+                    ban = await get_active_ban(int(user_id))
+                    await message.reply(support_home_text(ban), components=support_kb())
+                    return
+                # بقیه دستورات مسدود
+                ban = await get_active_ban(int(user_id))
+                await message.reply(
+                    "🚫 حساب شما بن است.\n"
+                    f"کد پیگیری: `{(ban or {}).get('tracking_code') or '—'}`\n"
+                    "فقط بخش **🎫 پشتیبانی** در دسترس است.\n"
+                    "بنویس: `پشتیبانی`",
+                    components=support_kb(),
+                )
+                return
+        except Exception as e:
+            logger.debug(f"ban check: {e}")
+
+
         # ---- Start / Menu (Glass) ----
         if text in ("/start", "start", "منو", "شروع", "/menu"):
             try:
@@ -182,6 +211,17 @@ async def on_message(message: Message):
                     WELCOME + "\n\n⚠️ منوی دکمه‌ای موقتاً در دسترس نیست.\n"
                     f"خطا: `{type(e).__name__}`"
                 )
+            return
+
+
+        # ---- پنل ادمین / مالک ----
+        if text in ("/admin", "admin", "پنل ادمین", "/panel", "پنل"):
+            from database.admins import is_admin, is_owner
+            if await is_owner(user_id) or await is_admin(user_id):
+                from admin.panel import show_owner_panel
+                await show_owner_panel(message)
+                return
+            await message.reply("⛔ فقط ادمین / مالک.")
             return
 
         # ---- Owner Panel ----
@@ -290,11 +330,21 @@ async def on_message(message: Message):
                 pass
 
         # ---- Owner pending text (broadcast, add admin, economy, ...) ----
-        if await is_owner(user_id):
-            from admin.panel import handle_owner_text
-            handled = await handle_owner_text(bot, message, int(user_id), text)
-            if handled:
-                return
+        from database.admins import is_admin as _is_adm
+        if await is_owner(user_id) or await _is_adm(user_id):
+            from admin.users_mgmt import handle_um_text, has_um_pending
+            if has_um_pending(int(user_id)):
+                if await handle_um_text(bot, message, int(user_id), text):
+                    return
+            from admin.tickets_panel import handle_tk_text, has_tk_pending
+            if has_tk_pending(int(user_id)):
+                if await handle_tk_text(bot, message, int(user_id), text):
+                    return
+            if await is_owner(user_id):
+                from admin.panel import handle_owner_text
+                handled = await handle_owner_text(bot, message, int(user_id), text)
+                if handled:
+                    return
 
         # ---- Admin economy ----
         lower = text.lower()
@@ -603,6 +653,22 @@ async def on_callback(callback: CallbackQuery):
 
         logger.info(f"callback user={user_id} data={data!r}")
 
+        # بن: فقط پشتیبانی
+        try:
+            from database.bans import is_banned
+            if await is_banned(int(user_id)) and not data.startswith("sup:"):
+                try:
+                    await callback.answer("🚫 بن هستید — فقط پشتیبانی", show_alert=True)
+                except Exception:
+                    pass
+                from core.support import support_home_text, support_kb
+                from database.bans import get_active_ban
+                ban = await get_active_ban(int(user_id))
+                await _edit_or_reply(msg, support_home_text(ban), support_kb())
+                return
+        except Exception:
+            pass
+
         # قفل پنل: فقط صاحب پنل
         from utils.panel_lock import parse_data, deny_message
         from utils.keyboards import set_panel_owner, reset_panel_owner
@@ -655,6 +721,39 @@ async def on_callback(callback: CallbackQuery):
             await create_user(user_id, first_name=first_name, username=username)
         except Exception:
             pass
+
+
+        if data.startswith("um:"):
+            from database.admins import is_admin, is_owner
+            if not (await is_owner(user_id) or await is_admin(user_id)):
+                try:
+                    await callback.answer("⛔ ادمین", show_alert=True)
+                except Exception:
+                    pass
+                return
+            from admin.users_mgmt import handle_um_callback
+            text, kb = await handle_um_callback(bot, callback, data, user_id)
+            await _edit_or_reply(msg, text, kb)
+            return
+
+        if data.startswith("tk:"):
+            from database.admins import is_admin, is_owner
+            if not (await is_owner(user_id) or await is_admin(user_id)):
+                try:
+                    await callback.answer("⛔ ادمین", show_alert=True)
+                except Exception:
+                    pass
+                return
+            from admin.tickets_panel import handle_tk_callback
+            text, kb = await handle_tk_callback(bot, data, user_id)
+            await _edit_or_reply(msg, text, kb)
+            return
+
+        if data.startswith("sup:"):
+            from core.support import handle_sup_callback
+            text, kb = await handle_sup_callback(bot, user_id, data)
+            await _edit_or_reply(msg, text, kb)
+            return
 
         # Bug reports (user + admin)
         if data.startswith("report:"):
