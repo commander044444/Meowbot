@@ -69,10 +69,31 @@ async def profile_text(user_id, first_name=""):
     ), profile_kb()
 
 
-async def ranking_text(kind="points"):
+async def ranking_text(kind="points", chat_id=None, scope="global"):
+    """
+    scope=global → رنکینگ جهانی (پیوی)
+    scope=group + chat_id → رنکینگ همان گروه
+    """
+    if scope == "group" and chat_id is not None:
+        from database.group_stats import get_group_top
+        top = await get_group_top(chat_id, limit=10, kind="points" if kind == "points" else "meows")
+        title = "🏆 رنکینگ این گروه"
+        key = "meow_points" if kind != "meows" else "total_meows"
+        lines = [f"{title}\n━━━━━━━━━━━━━━"]
+        if not top:
+            lines.append("هنوز کسی در این گروه امتیاز ندارد.")
+        for i, u in enumerate(top or []):
+            name = u.get("first_name") or str(u.get("user_id"))
+            val = u.get(key, 0)
+            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
+            lines.append(f"{medal} {name} — `{val}`")
+        lines.append("\n💡 سکه و Pet بین همه گروه‌ها مشترک است.\nفقط رنکینگ گروه جداست.")
+        return "\n".join(lines), rank_kb()
+
+    # Global
     if kind == "points":
         top = await get_top_users(limit=10)
-        title = "🐾 رنکینگ امتیاز فصل"
+        title = "🌍 رنکینگ جهانی — امتیاز فصل"
         key = "meow_points"
     elif kind == "coins":
         from database.pool import fetch
@@ -81,7 +102,7 @@ async def ranking_text(kind="points"):
             "ORDER BY meow_coins DESC LIMIT 10"
         )
         top = [dict(r) for r in rows]
-        title = "🪙 رنکینگ سکه"
+        title = "🌍 رنکینگ جهانی — سکه"
         key = "meow_points"
     elif kind == "wins":
         from database.pool import fetch
@@ -90,7 +111,7 @@ async def ranking_text(kind="points"):
             "ORDER BY total_wins DESC LIMIT 10"
         )
         top = [dict(r) for r in rows]
-        title = "⚔️ رنکینگ برد"
+        title = "🌍 رنکینگ جهانی — برد نبرد"
         key = "meow_points"
     else:
         from database.pool import fetch
@@ -99,18 +120,20 @@ async def ranking_text(kind="points"):
             "ORDER BY gym_level DESC LIMIT 10"
         )
         top = [dict(r) for r in rows]
-        title = "🏋️ رنکینگ باشگاه"
+        title = "🌍 رنکینگ جهانی — باشگاه"
         key = "meow_points"
 
+    lines = [f"{title}\n━━━━━━━━━━━━━━"]
     if not top:
-        return "📭 هنوز کسی نیست. میو کنید!", rank_kb()
-    medals = ["🥇", "🥈", "🥉"]
-    lines = [f"🏆 **{title}**\n━━━━━━━━━━━━━━"]
-    for i, u in enumerate(top):
-        m = medals[i] if i < 3 else f"`{i+1}.`"
-        name = u.get("first_name") or u.get("username") or str(u["user_id"])
-        lines.append(f"{m} {name} — `{u.get(key, 0)}`")
+        lines.append("هنوز کسی نیست.")
+    for i, u in enumerate(top or []):
+        name = u.get("first_name") or str(u.get("user_id"))
+        val = u.get(key, 0)
+        medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} {name} — `{val}`")
+    lines.append("\n👑 نفر اول = لیدربورد فعلی")
     return "\n".join(lines), rank_kb()
+
 
 
 async def season_text():
@@ -176,7 +199,7 @@ async def daily_reward(user_id):
     ), back_main_kb()
 
 
-async def handle_menu_callback(user_id, data, first_name=""):
+async def handle_menu_callback(user_id, data, first_name="", chat_id=None, private=True):
     if data == "menu:main":
         return WELCOME, main_menu_kb()
     if data == "menu:close":
@@ -188,7 +211,47 @@ async def handle_menu_callback(user_id, data, first_name=""):
     if data == "menu:guide":
         return GUIDE, back_main_kb()
     if data == "menu:rank":
-        return await ranking_text("points")
+        if private or chat_id is None:
+            return await ranking_text("points", scope="global")
+        return await ranking_text("points", chat_id=chat_id, scope="group")
+    if data == "menu:report":
+        from core.reports import start_report_flow
+        return await start_report_flow(user_id, prev="menu:main")
+    if data == "menu:global_group":
+        from database.settings import get_global_meow_group
+        g = await get_global_meow_group()
+        if not g:
+            return (
+                "🐱 هنوز گروه جهانی میو تنظیم نشده.\nOwner باید از پنل اضافه کند.",
+                back_main_kb(),
+            )
+        invite = g.get("invite_link") or ""
+        title = g.get("title") or "گروه میو"
+        cid = g.get("chat_id")
+        lines = [
+            f"🐱 **گپ / گروه برای میو کردن**",
+            "━━━━━━━━━━━━━━",
+            f"📌 {title}",
+            f"🆔 `{cid}`",
+        ]
+        if invite:
+            lines.append(f"\n🔗 لینک عضویت:\n{invite}")
+            lines.append("\nروی لینک بزن و عضو شو 🗿")
+        else:
+            lines.append("\nلینک دعوت ثبت نشده. از Owner بخواه لینک بگذارد.")
+        from utils.keyboards import glass
+        rows = []
+        if invite:
+            # url button via glass_url if available
+            try:
+                from utils.keyboards import glass_url
+                return "\n".join(lines), glass_url(
+                    [("🚪 عضویت در گروه", invite)],
+                    [("🔙 منو", "menu:main")],
+                )
+            except Exception:
+                pass
+        return "\n".join(lines), back_main_kb()
     if data == "menu:season":
         return await season_text()
     if data == "menu:missions":
@@ -205,5 +268,7 @@ async def handle_menu_callback(user_id, data, first_name=""):
         ), main_menu_kb()
     if data.startswith("rank:"):
         kind = data.split(":")[1]
-        return await ranking_text(kind)
+        if private or chat_id is None:
+            return await ranking_text(kind, scope="global")
+        return await ranking_text(kind, chat_id=chat_id, scope="group")
     return WELCOME, main_menu_kb()
