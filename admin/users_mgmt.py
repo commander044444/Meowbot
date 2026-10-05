@@ -91,13 +91,22 @@ async def user_card(target_id: int):
     ban = await get_active_ban(target_id)
     pet = await get_pet(target_id)
     # daily meows today
-    from datetime import datetime
+    from datetime import datetime, date
     from zoneinfo import ZoneInfo
-    day = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%d")
-    daily = await fetchval(
-        "SELECT meow_count FROM daily_meow_stats WHERE user_id = $1 AND day_date = $2",
-        int(target_id), day,
-    )
+    day = datetime.now(ZoneInfo("Asia/Tehran")).date()  # DATE type for asyncpg
+    try:
+        daily = await fetchval(
+            "SELECT meow_count FROM daily_meow_stats WHERE user_id = $1 AND day_date = $2",
+            int(target_id), day,
+        )
+    except Exception:
+        try:
+            daily = await fetchval(
+                "SELECT meow_count FROM daily_meow_stats WHERE user_id = $1 AND day_date = $2::date",
+                int(target_id), day.isoformat(),
+            )
+        except Exception:
+            daily = 0
     ban_line = "—"
     if ban:
         dur = "دائمی" if ban.get("is_permanent") else f"{ban.get('duration_days')} روز"
