@@ -113,7 +113,15 @@ async def on_message(message: Message):
         user_id = int(author.id)
         first_name = getattr(author, "first_name", None) or "Unknown"
         username = getattr(author, "username", None) or ""
-        private = not (chat_title or chat_username)
+        # تشخیص PV: در بله ممکن است username داشته باشد؛ title فقط برای گروه/کانال است
+        chat_type = str(getattr(chat, "type", None) or getattr(chat, "chat_type", None) or "").lower()
+        if chat_type in ("private", "user", "pv", "dm"):
+            private = True
+        elif chat_type in ("group", "supergroup", "channel"):
+            private = False
+        else:
+            # fallback: گروه معمولاً title دارد
+            private = not bool(chat_title)
 
         if chat_id and (chat_title or chat_username):
             try:
@@ -156,20 +164,35 @@ async def on_message(message: Message):
             await message.reply(txt, components=kb)
             return
 
-        # ---- Pet name input (اولویت بالاتر از Owner pending) ----
-        if private:
+        # ---- Pet name input (همیشه اگر awaiting — حتی اگر تشخیص PV اشتباه باشد) ----
+        try:
             from pet.system import handle_name_input, try_call_pet
             name_text, name_kb = await handle_name_input(int(user_id), text)
             if name_text is not None:
-                if name_kb:
-                    await message.reply(name_text, components=name_kb)
-                else:
+                try:
+                    if name_kb is not None:
+                        await message.reply(name_text, components=name_kb)
+                    else:
+                        await message.reply(name_text)
+                except Exception as e:
+                    logger.error(f"pet name reply failed: {e}")
                     await message.reply(name_text)
                 return
-            call = await try_call_pet(int(user_id), text)
-            if call:
-                await message.reply(call)
-                return
+            if private:
+                call = await try_call_pet(int(user_id), text)
+                if call:
+                    await message.reply(call)
+                    return
+        except Exception as e:
+            logger.error(f"pet name handler error: {e}")
+            import traceback as _tb
+            _tb.print_exc()
+            # به Owner خطا را نشان بده تا silent نماند
+            try:
+                if int(user_id) == int(OWNER_ID):
+                    await message.reply(f"⚠️ pet name error: `{e}`")
+            except Exception:
+                pass
 
         # ---- Owner pending text (broadcast, add admin, economy, ...) ----
         if await is_owner(user_id):
