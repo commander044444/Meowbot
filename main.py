@@ -386,9 +386,26 @@ async def _dispatch(user_id, data: str, first_name="", username=""):
         items = await get_shop_items()
         if not items:
             return "🛒 فروشگاه خالی است.", back_main_kb()
-        lines = ["🛒 **فروشگاه میویی**\n━━━━━━━━━━━━━━"]
+        lines = [
+            "🛒 **فروشگاه Pet**",
+            "━━━━━━━━━━━━━━",
+            "برای غذا / بازی / خواب باید از اینجا بخری.",
+            "هر آیتم معمولاً **۲۰ بار** قابل استفاده است.",
+            "",
+        ]
         for it in items:
-            lines.append(f"• {it.get('name')} — `{it.get('price')}`🪙 ({it.get('rarity')})")
+            import json as _json
+            eff = it.get("effect") or {}
+            if isinstance(eff, str):
+                try:
+                    eff = _json.loads(eff)
+                except Exception:
+                    eff = {}
+            uses = eff.get("max_uses") or 20
+            lines.append(
+                f"• {it.get('name')} — `{it.get('price')}`🪙 "
+                f"| {uses}× | {it.get('item_type')}"
+            )
         return "\n".join(lines), shop_kb(items)
 
     if data.startswith("shop:buy:"):
@@ -402,17 +419,55 @@ async def _dispatch(user_id, data: str, first_name="", username=""):
             return f"❌ کوین کافی نیست. قیمت: `{price}`", shop_kb(items)
         if not await spend_meow_coins(user_id, price):
             return "❌ خطا در پرداخت.", shop_kb(items)
-        await add_item(user_id, item_id, item.get("item_type") or "item", 1, item.get("effect") or {})
-        return f"✅ **{item.get('name')}** خریدی!\n🪙 -{price}", shop_kb(items)
+        import json as _json
+        effect = item.get("effect") or {}
+        if isinstance(effect, str):
+            try:
+                effect = _json.loads(effect)
+            except Exception:
+                effect = {}
+        effect = dict(effect)
+        max_uses = int(effect.get("max_uses") or 20)
+        effect["max_uses"] = max_uses
+        effect["uses_left"] = max_uses
+        await add_item(
+            user_id,
+            item_id,
+            item.get("item_type") or "item",
+            1,
+            effect,
+        )
+        return (
+            f"✅ **{item.get('name')}** خریدی!\n"
+            f"🪙 -{price}\n"
+            f"🔋 تعداد استفاده: `{max_uses}`\n"
+            f"📦 برو Pet و استفاده کن!",
+            shop_kb(items),
+        )
 
     if data == "shop:inv":
         from database.inventory import get_inventory
+        import json as _json
         inv = await get_inventory(user_id)
         if not inv:
-            return "🎒 اینونتوری خالی است.", back_main_kb()
-        lines = ["🎒 **اینونتوری**\n━━━━━━━━━━━━━━"]
+            return "🎒 اینونتوری خالی است.\nاز فروشگاه برای Pet بخر!", back_main_kb()
+        lines = ["🎒 **اینونتوری Pet**", "━━━━━━━━━━━━━━"]
         for it in inv:
-            lines.append(f"• {it.get('item_id')} ×{it.get('quantity')}")
+            meta = it.get("meta") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = _json.loads(meta)
+                except Exception:
+                    meta = {}
+            uses = meta.get("uses_left")
+            max_u = meta.get("max_uses")
+            if uses is not None:
+                lines.append(
+                    f"• `{it.get('item_id')}` ({it.get('item_type')}) "
+                    f"— 🔋 {uses}/{max_u or uses}"
+                )
+            else:
+                lines.append(f"• `{it.get('item_id')}` ×{it.get('quantity')}")
         return "\n".join(lines), back_main_kb()
 
     return WELCOME, main_menu_kb()
