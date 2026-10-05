@@ -74,6 +74,7 @@ def nav():
         [("🎉 Events", "owner:events"), ("📢 Broadcast", "owner:broadcast")],
         [("💬 Msg Admin", "owner:msg_admin"), ("📜 Logs", "owner:logs")],
         [("💾 Backup", "owner:backup"), ("⚙️ Settings", "owner:settings")],
+        [("🐛 گزارش‌ها", "owner:reports"), ("🌍 گروه جهانی", "owner:global_group")],
         [("🚧 Maintenance", "owner:maint"), ("🔙 بستن", "owner:close")],
     ])
 
@@ -783,6 +784,35 @@ async def handle_owner_callback(bot, callback, data: str):
             )
             return
 
+
+        if action == "reports":
+            from core.reports import admin_list_text
+            text, kb = await admin_list_text("open")
+            await _edit(msg, text, kb)
+            return
+
+        if action == "global_group":
+            from database.settings import get_global_meow_group
+            g = await get_global_meow_group()
+            info = "تنظیم نشده"
+            if g:
+                info = f"id=`{g.get('chat_id')}`\nlink={g.get('invite_link') or '—'}\ntitle={g.get('title')}"
+            _pending[user_id] = {"action": "set_global_group"}
+            await _edit(
+                msg,
+                "🌍 **گروه جهانی میو**\n"
+                "━━━━━━━━━━━━━━\n"
+                f"وضعیت فعلی:\n{info}\n\n"
+                "فرمت پیام:\n"
+                "`CHAT_ID | لینک_دعوت | عنوان`\n\n"
+                "مثال:\n"
+                "`123456789 | https://ble.ir/join/xxx | گروه میو اصلی`\n\n"
+                "ربات باید داخل آن گروه ادمین/عضو باشد.\n"
+                "لغو: `لغو`",
+                back_nav(),
+            )
+            return
+
         await _edit(msg, f"❓ بخش ناشناخته: `{action}`", nav())
 
     except Exception as e:
@@ -1080,6 +1110,25 @@ async def handle_owner_text(bot, message, user_id: int, text: str) -> bool:
             await message.reply(
                 f"✅ ایونت **{name}** برای `{days}` روز ساخته شد.\n"
                 f"XP×{xp_m} Coin×{coin_m}",
+                components=nav(),
+            )
+            _pending.pop(user_id, None)
+            return True
+
+
+        if action == "set_global_group":
+            parts = [x.strip() for x in text.split("|")]
+            if not parts or not parts[0]:
+                await message.reply("❌ `CHAT_ID | invite_link | title`", components=back_nav())
+                return True
+            cid = parts[0]
+            invite = parts[1] if len(parts) > 1 else ""
+            title = parts[2] if len(parts) > 2 else "گروه میو"
+            from database.settings import set_global_meow_group
+            await set_global_meow_group(cid, invite, title)
+            await log_action(user_id, "set_global_group", cid, {"invite": invite, "title": title})
+            await message.reply(
+                f"✅ گروه جهانی تنظیم شد.\n`{cid}`\n{title}\n{invite or 'بدون لینک'}",
                 components=nav(),
             )
             _pending.pop(user_id, None)
