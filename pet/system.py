@@ -50,6 +50,26 @@ CALL_MESSAGES = [
 ]
 
 
+
+def _as_dict(val):
+    """meta/effect همیشه dict."""
+    import json
+    if val is None:
+        return {}
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    try:
+        return dict(val)
+    except Exception:
+        return {}
+
+
 def clamp(v, lo=PET_STAT_MIN, hi=PET_STAT_MAX):
     return max(lo, min(hi, int(v)))
 
@@ -272,8 +292,8 @@ async def action_feed(user_id):
     if not ok:
         return "❌ این غذا تموم شده. از فروشگاه بخر.", pet_home_kb(True)
 
-    effect = meta if meta else {}
-    # effect ممکن است از shop باشد — از meta آیتم
+    effect = _as_dict(meta)
+    # effect از shop باشد — از meta آیتم
     hunger_add = int(effect.get("hunger") or 25)
     rel_add = int(effect.get("relationship") or 0)
     xp_add = int(effect.get("xp") or PET_XP_FEED)
@@ -322,7 +342,7 @@ async def action_play(user_id, kind="ball"):
     if not ok:
         return "❌ اسباب‌بازی تموم شده. از فروشگاه بخر.", pet_home_kb(True)
 
-    effect = meta or {}
+    effect = _as_dict(meta)
     energy_add = int(effect.get("energy") or 15)
     xp_add = int(effect.get("xp") or PET_XP_PLAY)
     rel_add = int(effect.get("relationship") or 3)
@@ -422,7 +442,7 @@ async def action_sleep(user_id):
     if not ok:
         return "❌ جای خواب فرسوده شده. یکی جدید از فروشگاه بخر.", pet_home_kb(True)
 
-    effect = meta or {}
+    effect = _as_dict(meta)
     energy_bonus = int(effect.get("energy") or PET_SLEEP_ENERGY)
     duration = PET_SLEEP_DURATION
 
@@ -440,12 +460,14 @@ async def action_sleep(user_id):
 
 async def action_gift(user_id):
     pet = await get_pet(user_id)
-    if not pet or pet.get("awaiting_name"):
+    if not pet or not isinstance(pet, dict) or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
 
     item, meta, err = await _need_item(user_id, "gift", "هدیه دادن")
     if err:
         return err
+    if not item or not isinstance(item, dict):
+        return "❌ آیتم هدیه نامعتبر است. از فروشگاه بخر.", pet_home_kb(True)
 
     now = time.time()
     cd = PET_GIFT_COOLDOWN - (now - float(pet.get("last_gift") or 0))
@@ -453,11 +475,14 @@ async def action_gift(user_id):
         return f"⏳ هدیه بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
 
     from database.inventory import consume_use
-    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    item_id = item.get("item_id") or ""
+    if not item_id:
+        return "❌ آیتم هدیه پیدا نشد.", pet_home_kb(True)
+    ok, left, _ = await consume_use(user_id, item_id, 1)
     if not ok:
         return "❌ هدیه تموم شده.", pet_home_kb(True)
 
-    effect = meta or {}
+    effect = _as_dict(meta)
     rel_add = int(effect.get("relationship") or 12)
     mood_add = int(effect.get("mood") or 8)
     xp_add = int(effect.get("xp") or PET_XP_GIFT)
@@ -479,7 +504,10 @@ async def action_gift(user_id):
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
+    if not isinstance(pet, dict):
+        return msg, pet_home_kb(True)
     return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
+
 
 
 async def handle_pet_callback(user_id, data: str, first_name="", username=""):
