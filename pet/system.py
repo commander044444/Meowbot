@@ -19,7 +19,7 @@ from config import (
 )
 from database.pets import get_pet, create_pet, update_pet, pet_exists
 from database.users import get_user, create_user, get_meow_coins, spend_meow_coins, add_meow_points, add_meow_coins
-from utils.keyboards import pet_home_kb, pet_play_kb, back_main_kb
+from utils.keyboards import glass,  pet_home_kb, pet_play_kb, back_main_kb
 
 FEED_MESSAGES = [
     "🐱 {name} با ذوق غذاشو خورد! 😋",
@@ -115,23 +115,13 @@ async def get_or_create_flow(user_id):
     if not pet:
         await create_pet(user_id, awaiting_name=True)
         pet = await get_pet(user_id)
-        return (
-            pet,
-            "✨ Pet جدید ساخته شد!
-
-✏️ یک نام برای پیشی‌ات بفرست (۲ تا ۲۰ حرف).
-مثال: میوشا",
-            pet_home_kb(True, True),
-        )
+        msg = "✨ Pet جدید ساخته شد!\n\n✏️ یک نام برای پیشی‌ات بفرست (۲ تا ۲۰ حرف).\nمثال: میوشا"
+        return pet, msg, pet_home_kb(True, True)
     name = (pet.get("pet_name") or "").strip()
     awaiting = bool(pet.get("awaiting_name")) or (not name)
     if awaiting:
-        return (
-            pet,
-            "✏️ هنوز نام نگذاشتی!
-همین الان یک نام قشنگ بفرست (۲ تا ۲۰ حرف).",
-            pet_home_kb(True, True),
-        )
+        msg = "✏️ هنوز نام نگذاشتی!\nهمین الان یک نام قشنگ بفرست (۲ تا ۲۰ حرف)."
+        return pet, msg, pet_home_kb(True, True)
     return pet, pet_card(pet), pet_home_kb(True, False)
 
 
@@ -150,7 +140,6 @@ async def handle_name_input(user_id, text: str):
     if isinstance(awaiting, str):
         awaiting = awaiting.lower() in ("1", "true", "t", "yes")
 
-    # اگر نام خالی است، حتماً در حالت نام‌گذاری هستیم
     current_name = (pet.get("pet_name") or "").strip()
     if not current_name:
         awaiting = True
@@ -172,7 +161,6 @@ async def handle_name_input(user_id, text: str):
             pet_home_kb(True, True),
         )
 
-    # فارسی / انگلیسی / عدد / فاصله
     if not re.match(r"^[\w\u0600-\u06FF\s\-]+$", name, re.UNICODE):
         return "❌ فقط حروف، عدد و فاصله مجاز است.", pet_home_kb(True, True)
 
@@ -396,45 +384,45 @@ def _apply_xp(level, xp):
 
 async def handle_pet_callback(user_id, data: str, first_name="", username=""):
     await ensure_user(user_id, first_name, username)
+
     if data == "pet:home":
         pet, text, kb = await get_or_create_flow(user_id)
         return text, kb
+
     if data == "pet:create":
         await create_pet(user_id, awaiting_name=True)
         try:
             from database.pool import execute
             await execute(
-                "UPDATE pets SET awaiting_name = TRUE, pet_name = COALESCE(pet_name, '') WHERE user_id = $1",
+                "UPDATE pets SET awaiting_name = TRUE WHERE user_id = $1",
                 int(user_id),
             )
         except Exception:
             pass
         return (
-            "✨ Pet ساخته شد!
-✏️ الان فقط یک نام بفرست (۲ تا ۲۰ حرف).
-مثال: پیشی",
+            "✨ Pet ساخته شد!\n✏️ الان فقط یک نام بفرست (۲ تا ۲۰ حرف).\nمثال: پیشی",
             pet_home_kb(True, True),
         )
+
     if data == "pet:feed":
         return await action_feed(user_id)
+
     if data == "pet:play_menu":
         return "🎾 چه بازی؟", pet_play_kb()
+
     if data.startswith("pet:play:"):
         kind = data.split(":")[-1]
         return await action_play(user_id, kind)
+
     if data == "pet:pet":
         return await action_pet(user_id)
+
     if data == "pet:sleep":
         return await action_sleep(user_id)
+
     if data == "pet:gift":
         return await action_gift(user_id)
-    if data == "pet:status":
-        pet = await get_pet(user_id)
-        if not pet:
-            return "❌ Pet نداری.", pet_home_kb(False)
-        return pet_card(pet), pet_home_kb(True, bool(pet.get("awaiting_name")))
-    if data == "pet:levelup":
-        return await action_levelup(user_id)
+
     if data == "pet:rename":
         await update_pet(user_id, awaiting_name=True)
         try:
@@ -445,7 +433,24 @@ async def handle_pet_callback(user_id, data: str, first_name="", username=""):
             )
         except Exception:
             pass
-        return "✏️ نام جدید را همین الان در چت بفرست (۲ تا ۲۰ حرف):", pet_home_kb(True, True)
-    if data == "pet:await_hint":
-        return "✏️ همین الان در چت یک نام بنویس و بفرست.", pet_home_kb(True, True)
-    return "🐾 Pet Menu", pet_home_kb(True)
+        return (
+            "✏️ نام جدید را همین الان در چت بفرست (۲ تا ۲۰ حرف):",
+            pet_home_kb(True, True),
+        )
+
+    if data == "pet:delete":
+        return (
+            "⚠️ مطمئنی می‌خوای Pet رو حذف کنی؟",
+            glass(
+                [("✅ بله حذف کن", "pet:delete_yes"), ("❌ نه", "pet:home")],
+            ),
+        )
+
+    if data == "pet:delete_yes":
+        from database.pets import delete_pet
+        await delete_pet(user_id)
+        return "🗑️ Pet حذف شد.", pet_home_kb(False, False)
+
+    # fallback
+    pet, text, kb = await get_or_create_flow(user_id)
+    return text, kb
