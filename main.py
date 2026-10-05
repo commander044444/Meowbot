@@ -782,7 +782,6 @@ async def on_callback(callback: CallbackQuery):
                 cancel_report, admin_list_text, admin_view_report, admin_resolve,
             )
             from core.menu import handle_menu_callback
-            from database.admins import is_owner as _is_owner_check
             parts = data.split(":")
             cmd = parts[1] if len(parts) > 1 else ""
             if cmd == "cancel":
@@ -795,7 +794,7 @@ async def on_callback(callback: CallbackQuery):
                 # owner or admin
                 from database.admins import get_admin
                 adm = await get_admin(user_id)
-                is_adm = await _is_owner_check(user_id) or (adm and adm.get("enabled", True))
+                is_adm = await is_owner(user_id) or (adm and adm.get("enabled", True))
                 if not is_adm:
                     try:
                         await callback.answer("⛔ فقط ادمین", show_alert=True)
