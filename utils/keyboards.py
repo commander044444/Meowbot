@@ -31,6 +31,8 @@ def glass(*rows, owner_id=None) -> InlineKeyboardMarkup:
     اگر owner_id داده شود، callbackها قفل می‌شوند برای همان کاربر (در گروه).
     """
     from utils.panel_lock import tag_data
+    if owner_id is None:
+        owner_id = get_panel_owner()
     kb = InlineKeyboardMarkup()
     row_num = 1
 
