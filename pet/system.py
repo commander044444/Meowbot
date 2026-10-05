@@ -115,10 +115,25 @@ async def get_or_create_flow(user_id):
     if not pet:
         await create_pet(user_id, awaiting_name=True)
         pet = await get_pet(user_id)
-        return pet, "✨ Pet جدید ساخته شد!\n\n✏️ یک نام برای پیشی‌ات بفرست (۲ تا ۲۰ حرف).", pet_home_kb(False, True)
-    if pet.get("awaiting_name"):
-        return pet, "✏️ هنوز نام نگذاشتی!\nیک نام قشنگ بفرست.", pet_home_kb(True, True)
+        return (
+            pet,
+            "✨ Pet جدید ساخته شد!
+
+✏️ یک نام برای پیشی‌ات بفرست (۲ تا ۲۰ حرف).
+مثال: میوشا",
+            pet_home_kb(True, True),
+        )
+    name = (pet.get("pet_name") or "").strip()
+    awaiting = bool(pet.get("awaiting_name")) or (not name)
+    if awaiting:
+        return (
+            pet,
+            "✏️ هنوز نام نگذاشتی!
+همین الان یک نام قشنگ بفرست (۲ تا ۲۰ حرف).",
+            pet_home_kb(True, True),
+        )
     return pet, pet_card(pet), pet_home_kb(True, False)
+
 
 
 async def handle_name_input(user_id, text: str):
@@ -134,6 +149,12 @@ async def handle_name_input(user_id, text: str):
         awaiting = bool(awaiting)
     if isinstance(awaiting, str):
         awaiting = awaiting.lower() in ("1", "true", "t", "yes")
+
+    # اگر نام خالی است، حتماً در حالت نام‌گذاری هستیم
+    current_name = (pet.get("pet_name") or "").strip()
+    if not current_name:
+        awaiting = True
+
     if not awaiting:
         return None, None
 
@@ -380,7 +401,20 @@ async def handle_pet_callback(user_id, data: str, first_name="", username=""):
         return text, kb
     if data == "pet:create":
         await create_pet(user_id, awaiting_name=True)
-        return "✨ Pet ساخته شد!\n✏️ یک نام بفرست (۲–۲۰ حرف).", pet_home_kb(False, True)
+        try:
+            from database.pool import execute
+            await execute(
+                "UPDATE pets SET awaiting_name = TRUE, pet_name = COALESCE(pet_name, '') WHERE user_id = $1",
+                int(user_id),
+            )
+        except Exception:
+            pass
+        return (
+            "✨ Pet ساخته شد!
+✏️ الان فقط یک نام بفرست (۲ تا ۲۰ حرف).
+مثال: پیشی",
+            pet_home_kb(True, True),
+        )
     if data == "pet:feed":
         return await action_feed(user_id)
     if data == "pet:play_menu":
@@ -403,7 +437,15 @@ async def handle_pet_callback(user_id, data: str, first_name="", username=""):
         return await action_levelup(user_id)
     if data == "pet:rename":
         await update_pet(user_id, awaiting_name=True)
-        return "✏️ نام جدید را بفرست:", pet_home_kb(True, True)
+        try:
+            from database.pool import execute
+            await execute(
+                "UPDATE pets SET awaiting_name = TRUE WHERE user_id = $1",
+                int(user_id),
+            )
+        except Exception:
+            pass
+        return "✏️ نام جدید را همین الان در چت بفرست (۲ تا ۲۰ حرف):", pet_home_kb(True, True)
     if data == "pet:await_hint":
         return "✏️ همین الان در چت یک نام بنویس و بفرست.", pet_home_kb(True, True)
     return "🐾 Pet Menu", pet_home_kb(True)
