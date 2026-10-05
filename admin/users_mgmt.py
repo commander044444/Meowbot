@@ -155,8 +155,11 @@ async def handle_um_callback(bot, callback, data: str, admin_id: int):
 
     if cmd == "unban" and len(parts) > 2:
         tid = int(parts[2])
-        await unban_user(tid, admin_id)
-        await log_action(admin_id, "unban", str(tid))
+        ok = await unban_user(tid, admin_id)
+        try:
+            await log_action(admin_id, "unban", str(tid), {"ok": bool(ok)})
+        except Exception:
+            pass
         try:
             await bot.send_message(
                 tid,
@@ -164,7 +167,9 @@ async def handle_um_callback(bot, callback, data: str, admin_id: int):
             )
         except Exception:
             pass
-        return await user_card(tid)
+        card, kb = await user_card(tid)
+        prefix = "✅ آنبن موفق" if ok else "⚠️ آنبن اجرا شد"
+        return f"{prefix}\n\n{card}", kb
 
     if cmd == "logs" and len(parts) > 2:
         tid = int(parts[2])
