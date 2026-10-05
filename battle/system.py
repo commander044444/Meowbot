@@ -221,8 +221,9 @@ async def create_challenge(from_id, from_name, to_id, to_name):
         f"━━━━━━━━━━━━━━\n"
         f"قبول می‌کنی؟"
     )
+    from utils.panel_lock import tag_data
     kb = _kb([
-        [("✅ پذیرش", f"battle:accept:{cid}"), ("❌ رد", f"battle:reject:{cid}")],
+        [("✅ پذیرش", tag_data(f"battle:accept:{cid}", int(to_id))), ("❌ رد", tag_data(f"battle:reject:{cid}", int(to_id)))],
     ])
     return text, kb
 
