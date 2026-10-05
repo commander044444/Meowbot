@@ -253,10 +253,17 @@ async def on_message(message: Message):
                     logger.error(f"pet name reply failed: {e}")
                     await message.reply(name_text)
                 return
-            # صدا زدن Pet در گروه و پیوی
+            # صدا زدن Pet در گروه و پیوی → پنل شیشه‌ای
             call = await try_call_pet(int(user_id), text)
             if call:
-                await message.reply(call)
+                if isinstance(call, tuple):
+                    call_text, call_kb = call[0], call[1] if len(call) > 1 else None
+                    if call_kb is not None:
+                        await message.reply(call_text, components=call_kb)
+                    else:
+                        await message.reply(call_text)
+                else:
+                    await message.reply(str(call))
                 return
         except Exception as e:
             logger.error(f"pet name handler error: {e}")
