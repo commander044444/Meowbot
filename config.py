@@ -118,7 +118,9 @@ BATTLE_ROUNDS = 3
 # Auto Guide Settings (default)
 # ------------------------------------------
 GUIDE_DEFAULT_ENABLED = True
-GUIDE_DEFAULT_INTERVAL = 3600   # 1 ساعت
+GUIDE_DEFAULT_INTERVAL = 9000   # حدود ۲.۵ ساعت (میانگین ۲–۳ ساعت)
+GUIDE_INTERVAL_MIN = 2 * 3600  # ۲ ساعت
+GUIDE_INTERVAL_MAX = 3 * 3600  # ۳ ساعت
 GUIDE_INTERVALS = {
     15: 15 * 60,
     30: 30 * 60,
