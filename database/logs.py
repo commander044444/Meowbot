@@ -6,14 +6,41 @@ from .pool import execute, fetch
 import json
 
 
-async def log_action(actor_id: int, action: str, target: str = None, details: dict = None, result: str = "ok"):
-    await execute(
-        """
-        INSERT INTO audit_logs (actor_id, action, target, details, result)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
-        """,
-        int(actor_id), action, target, json.dumps(details or {}), result,
-    )
+def _to_jsonb(details) -> str:
+    """همیشه JSON معتبر برای ستون jsonb بساز."""
+    if details is None:
+        return "{}"
+    if isinstance(details, (dict, list)):
+        return json.dumps(details, ensure_ascii=False)
+    if isinstance(details, str):
+        # اگر قبلاً JSON است همان را بگذار؛ وگرنه در object بپیچ
+        s = details.strip()
+        if s.startswith("{") or s.startswith("["):
+            try:
+                json.loads(s)
+                return s
+            except Exception:
+                pass
+        return json.dumps({"value": details}, ensure_ascii=False)
+    return json.dumps({"value": str(details)}, ensure_ascii=False)
+
+
+async def log_action(actor_id: int, action: str, target: str = None, details=None, result: str = "ok"):
+    try:
+        await execute(
+            """
+            INSERT INTO audit_logs (actor_id, action, target, details, result)
+            VALUES ($1, $2, $3, $4::jsonb, $5)
+            """,
+            int(actor_id),
+            str(action),
+            str(target) if target is not None else None,
+            _to_jsonb(details),
+            str(result or "ok"),
+        )
+    except Exception as e:
+        # لاگ نباید کل عملیات را خراب کند
+        print(f"log_action failed: {e}")
 
 
 async def get_recent_logs(limit: int = 50, actor_id: int = None):
