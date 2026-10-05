@@ -424,4 +424,10 @@ async def init_schema():
         """)
     except Exception as e:
         logger.warning(f"reports/group_stats migration: {e}")
+    try:
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_game_reward DOUBLE PRECISION DEFAULT 0"
+        )
+    except Exception as e:
+        logger.warning(f"last_game_reward migration: {e}")
     logger.info("✅ Database schema initialized")
