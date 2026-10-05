@@ -322,6 +322,45 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     value           JSONB NOT NULL,
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ========================================
+-- Bug Reports
+-- ========================================
+CREATE TABLE IF NOT EXISTS bug_reports (
+    id              SERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL,
+    username        TEXT DEFAULT '',
+    first_name      TEXT DEFAULT '',
+    body            TEXT NOT NULL,
+    status          TEXT DEFAULT 'open',
+    resolved_by     BIGINT DEFAULT NULL,
+    resolved_at     TIMESTAMPTZ DEFAULT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ========================================
+-- Per-group ranking (coins remain global on users)
+-- ========================================
+CREATE TABLE IF NOT EXISTS group_stats (
+    chat_id         TEXT NOT NULL,
+    user_id         BIGINT NOT NULL,
+    meow_points     INTEGER DEFAULT 0,
+    total_meows     INTEGER DEFAULT 0,
+    last_meow       TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (chat_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_stats_points ON group_stats (chat_id, meow_points DESC);
+
+-- ========================================
+-- Bot settings (global meow group, etc.)
+-- ========================================
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key             TEXT PRIMARY KEY,
+    value           TEXT DEFAULT '',
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
 """
 
 
@@ -351,4 +390,38 @@ async def init_schema():
         )
     except Exception as e:
         logger.warning(f"groups migration: {e}")
+    
+    try:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bug_reports (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                username TEXT DEFAULT '',
+                first_name TEXT DEFAULT '',
+                body TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                resolved_by BIGINT DEFAULT NULL,
+                resolved_at TIMESTAMPTZ DEFAULT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_stats (
+                chat_id TEXT NOT NULL,
+                user_id BIGINT NOT NULL,
+                meow_points INTEGER DEFAULT 0,
+                total_meows INTEGER DEFAULT 0,
+                last_meow TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (chat_id, user_id)
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT DEFAULT '',
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+    except Exception as e:
+        logger.warning(f"reports/group_stats migration: {e}")
     logger.info("✅ Database schema initialized")
