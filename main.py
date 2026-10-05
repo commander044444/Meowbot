@@ -168,7 +168,12 @@ async def on_message(message: Message):
         # ---- Start / Menu (Glass) ----
         if text in ("/start", "start", "منو", "شروع", "/menu"):
             try:
-                kb = main_menu_kb()
+                from utils.keyboards import set_panel_owner, reset_panel_owner
+                _tok = set_panel_owner(int(user_id))
+                try:
+                    kb = main_menu_kb()
+                finally:
+                    reset_panel_owner(_tok)
                 await message.reply(WELCOME, components=kb)
             except Exception as e:
                 logger.error(f"start menu kb error: {e}")
@@ -253,8 +258,16 @@ async def on_message(message: Message):
                     logger.error(f"pet name reply failed: {e}")
                     await message.reply(name_text)
                 return
-            # صدا زدن Pet در گروه و پیوی → پنل شیشه‌ای
-            call = await try_call_pet(int(user_id), text)
+            # صدا زدن Pet در گروه و پیوی → پنل شیشه‌ای (قفل برای همین کاربر)
+            from utils.keyboards import set_panel_owner, reset_panel_owner
+            _tok = set_panel_owner(int(user_id))
+            try:
+                call = await try_call_pet(int(user_id), text)
+            finally:
+                try:
+                    reset_panel_owner(_tok)
+                except Exception:
+                    pass
             if call:
                 if isinstance(call, tuple):
                     call_text, call_kb = call[0], call[1] if len(call) > 1 else None
@@ -566,6 +579,7 @@ async def on_callback(callback: CallbackQuery):
     """هندلر دکمه‌های شیشه‌ای — همیشه پاسخ می‌دهد."""
     data = ""
     user_id = 0
+    _owner_token = None
     try:
         data = (getattr(callback, "data", None) or "").strip()
         # کاربر
@@ -588,6 +602,42 @@ async def on_callback(callback: CallbackQuery):
         msg = getattr(callback, "message", None)
 
         logger.info(f"callback user={user_id} data={data!r}")
+
+        # قفل پنل: فقط صاحب پنل
+        from utils.panel_lock import parse_data, deny_message
+        from utils.keyboards import set_panel_owner, reset_panel_owner
+        clean_data, panel_owner = parse_data(data)
+        data = clean_data
+
+        # تشخیص گروه از message
+        is_group_panel = False
+        try:
+            chat = getattr(msg, "chat", None) if msg else None
+            title = getattr(chat, "title", None) if chat else None
+            is_group_panel = bool(title)
+        except Exception:
+            pass
+
+        if panel_owner is not None and int(panel_owner) != int(user_id):
+            try:
+                deny = await deny_message(panel_owner)
+                await callback.answer(deny.replace("**", ""), show_alert=True)
+            except Exception:
+                try:
+                    await callback.answer("⛔ این پنل مال تو نیست!", show_alert=True)
+                except Exception:
+                    pass
+            # پیام هم در گروه نشان بده
+            try:
+                if msg is not None and is_group_panel:
+                    deny = await deny_message(panel_owner)
+                    await msg.reply(deny)
+            except Exception:
+                pass
+            return
+
+        # از این به بعد کیبوردهای ساخته‌شده با owner همین کاربر تگ می‌شوند
+        _owner_token = set_panel_owner(user_id)
 
         # اول answer تا لودینگ دکمه قطع شود
         try:
@@ -698,6 +748,11 @@ async def on_callback(callback: CallbackQuery):
                 await bot.send_message(user_id, text, components=kb)
             except Exception as e:
                 logger.error(f"final send failed: {e}")
+
+        try:
+            reset_panel_owner(_owner_token)
+        except Exception:
+            pass
 
     except Exception as e:
         logger.error(f"callback error: {e}")
