@@ -150,8 +150,9 @@ def pet_play_kb():
 # ---------- Battle ----------
 def battle_home_kb():
     return glass(
-        [("⚔️ شروع نبرد تصادفی", "battle:random")],
-        [("🏋️ باشگاه من", "battle:gym"), ("📊 آمار نبرد", "battle:stats")],
+        [("⚔️ ورود به صف نبرد", "battle:queue")],
+        [("🚪 خروج از صف", "battle:leave_queue")],
+        [("🏋️ باشگاه من", "battle:gym"), ("📊 آمار نبرد", "battle:home")],
         [("🏠 منوی اصلی", "menu:main")],
     )
 
