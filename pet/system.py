@@ -211,30 +211,34 @@ async def handle_name_input(user_id, text: str):
 
 
 async def try_call_pet(user_id, text: str):
-    """صدا زدن با نام Pet."""
+    """
+    اگر متن نام Pet باشد → پیام صدا + دکمه باز کردن پنل کامل.
+    Returns (text, keyboard) یا None
+    """
     pet = await get_pet(user_id)
     if not pet or pet.get("awaiting_name") or not pet.get("pet_name"):
         return None
     name = (pet.get("pet_name") or "").strip()
     if not name:
         return None
-    t = text.strip()
-    if t != name and t.lower() != name.lower():
+    raw = (text or "").strip()
+    if not raw:
         return None
-    # hourly points in groups handled by caller
+    # تطبیق نام (بدون حساسیت به فاصله اضافه)
+    if raw.lower() != name.lower() and name not in raw and raw not in name:
+        # فقط اگر دقیقاً نام یا «نام» + کمی پسوند
+        norm = re.sub(r"\s+", "", raw).lower()
+        nname = re.sub(r"\s+", "", name).lower()
+        if norm != nname and not raw.lower().startswith(name.lower()):
+            return None
     msg = random.choice(CALL_MESSAGES).format(name=name)
-    now = time.time()
-    last = float(pet.get("last_point_claim") or 0)
-    bonus = ""
-    if now - last >= PET_POINT_COOLDOWN:
-        pts = hourly_points(int(pet.get("level") or 1))
-        await add_meow_points(user_id, pts)
-        await update_pet(user_id, last_point_claim=now, last_interaction=now,
-                         interaction_count=int(pet.get("interaction_count") or 0) + 1)
-        bonus = f"\n\n⭐ +{pts} امتیاز ساعتی!"
-    else:
-        await update_pet(user_id, last_interaction=now)
-    return msg + bonus
+    # دکمه باز کردن همان پنل کامل Pet
+    kb = glass(
+        [("🐾 باز کردن پنل پیشی", "pet:home")],
+        [("🍖 غذا", "pet:feed"), ("🎾 بازی", "pet:play_menu")],
+        [("🫶 نوازش", "pet:pet"), ("💤 خواب", "pet:sleep")],
+    )
+    return msg, kb
 
 
 
@@ -546,6 +550,24 @@ async def handle_pet_callback(user_id, data: str, first_name="", username=""):
         from database.pets import delete_pet
         await delete_pet(user_id)
         return "🗑️ Pet حذف شد.", pet_home_kb(False, False)
+
+
+    if data == "pet:status":
+        pet, text, kb = await get_or_create_flow(user_id)
+        return text, kb
+
+    if data == "pet:await_hint":
+        return "✏️ همین الان نام پیشی را در چت بنویس (۲ تا ۲۰ حرف).", pet_home_kb(True, True)
+
+    if data == "pet:levelup":
+        pet = await get_pet(user_id)
+        if not pet or pet.get("awaiting_name"):
+            return "❌ اول Pet بساز!", pet_home_kb(False)
+        return (
+            "⬆️ ارتقا لول با XP از غذا/بازی/نوازش پر می‌شود.\n"
+            "وقتی XP کافی باشد خودکار Level Up می‌شوی.",
+            pet_home_kb(True),
+        )
 
     # fallback
     pet, text, kb = await get_or_create_flow(user_id)
