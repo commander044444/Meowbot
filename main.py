@@ -16,7 +16,7 @@ from database.users import (
     admin_set_meow_coins, admin_set_meow_points, admin_set_gym_level,
 )
 from database.groups import register_group, set_interaction
-from database.admins import is_owner, has_permission
+from database.admins import is_owner, is_admin, has_permission, get_admin
 from database.logs import log_action
 from database.achievements import seed_achievements
 from database.missions import seed_missions
@@ -217,14 +217,12 @@ async def on_message(message: Message):
         # ---- پنل ادمین / مالک ----
         if text in ("/admin", "admin", "پنل ادمین", "/panel", "پنل", "/mod"):
             try:
-                from database.admins import is_admin, is_owner, get_admin
                 owner_ok = await is_owner(user_id)
                 admin_ok = await is_admin(user_id)
                 if owner_ok or admin_ok:
                     from admin.panel import show_owner_panel
                     await show_owner_panel(message)
                     return
-                # راهنما برای دیباگ
                 row = await get_admin(user_id)
                 if row and not row.get("enabled", True):
                     await message.reply("⛔ اکانت ادمین شما **غیرفعال** است.")
@@ -232,7 +230,7 @@ async def on_message(message: Message):
                     await message.reply(
                         "⛔ شما ادمین نیستید.\n"
                         f"آیدی شما: `{user_id}`\n"
-                        "Owner باید با پنل شما را اضافه کند."
+                        "Owner باید شما را اضافه کند."
                     )
                 return
             except Exception as e:
@@ -242,10 +240,18 @@ async def on_message(message: Message):
                 await message.reply(f"⚠️ خطا در پنل ادمین:\n`{type(e).__name__}: {e}`")
                 return
 
+        
         # ---- Owner Panel ----
-        if text in ("/owner", "owner", "پنل مالک", "👑") and await is_owner(user_id):
-            from admin.panel import show_owner_panel
-            await show_owner_panel(message)
+        if text in ("/owner", "owner", "پنل مالک", "👑"):
+            try:
+                if await is_owner(user_id):
+                    from admin.panel import show_owner_panel
+                    await show_owner_panel(message)
+                else:
+                    await message.reply("⛔ فقط Owner.")
+            except Exception as e:
+                logger.error(f"/owner error: {e}")
+                await message.reply(f"⚠️ /owner: `{e}`")
             return
 
 
@@ -347,9 +353,8 @@ async def on_message(message: Message):
             except Exception:
                 pass
 
-        # ---- Owner pending text (broadcast, add admin, economy, ...) ----
-        from database.admins import is_admin as _is_adm
-        if await is_owner(user_id) or await _is_adm(user_id):
+        # ---- Owner/Admin pending text ----
+        if await is_owner(user_id) or await is_admin(user_id):
             from admin.users_mgmt import handle_um_text, has_um_pending
             if has_um_pending(int(user_id)):
                 if await handle_um_text(bot, message, int(user_id), text):
@@ -742,7 +747,6 @@ async def on_callback(callback: CallbackQuery):
 
 
         if data.startswith("um:"):
-            from database.admins import is_admin, is_owner
             if not (await is_owner(user_id) or await is_admin(user_id)):
                 try:
                     await callback.answer("⛔ ادمین", show_alert=True)
@@ -755,7 +759,6 @@ async def on_callback(callback: CallbackQuery):
             return
 
         if data.startswith("tk:"):
-            from database.admins import is_admin, is_owner
             if not (await is_owner(user_id) or await is_admin(user_id)):
                 try:
                     await callback.answer("⛔ ادمین", show_alert=True)
@@ -827,8 +830,7 @@ async def on_callback(callback: CallbackQuery):
 
         # Owner / Admin panel
         if data.startswith("owner:"):
-            from database.admins import is_admin as _ia, is_owner as _io
-            if not (await _io(user_id) or await _ia(user_id)):
+            if not (await is_owner(user_id) or await is_admin(user_id)):
                 try:
                     await callback.answer("⛔ فقط ادمین/مالک", show_alert=True)
                 except Exception:
