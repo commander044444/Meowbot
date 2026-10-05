@@ -35,30 +35,58 @@ _start_time = time.time()
 
 
 async def _edit_or_reply(target, text, kb=None):
-    """Edit callback message or reply."""
-    try:
-        if hasattr(target, "edit") and kb is not None:
-            await target.edit(text, components=kb)
-            return
-        if hasattr(target, "edit") and kb is None:
-            await target.edit(text)
-            return
-        if hasattr(target, "edit_text"):
+    """Edit message if possible, otherwise reply. Never silent."""
+    if text is None:
+        text = "…"
+    text = str(text)
+    # 1) try edit
+    for method_name in ("edit_text", "edit"):
+        method = getattr(target, method_name, None)
+        if not callable(method):
+            continue
+        try:
             if kb is not None:
-                await target.edit_text(text, components=kb)
+                await method(text, components=kb)
             else:
-                await target.edit_text(text)
-            return
-    except Exception as e:
-        logger.debug(f"edit failed: {e}")
+                await method(text)
+            return True
+        except TypeError:
+            try:
+                # some versions: edit(content=..., components=...)
+                if kb is not None:
+                    await method(content=text, components=kb)
+                else:
+                    await method(content=text)
+                return True
+            except Exception as e:
+                logger.debug(f"{method_name} type fallback: {e}")
+        except Exception as e:
+            logger.debug(f"{method_name} failed: {e}")
+    # 2) reply on same message object
     try:
-        if hasattr(target, "reply"):
+        if hasattr(target, "reply") and callable(target.reply):
             if kb is not None:
                 await target.reply(text, components=kb)
             else:
                 await target.reply(text)
+            return True
     except Exception as e:
-        logger.warning(f"reply failed: {e}")
+        logger.warning(f"reply on target failed: {e}")
+    # 3) bot.send_message via chat
+    try:
+        chat = getattr(target, "chat", None)
+        chat_id = getattr(chat, "id", None) if chat else None
+        if chat_id is not None:
+            if kb is not None:
+                await bot.send_message(chat_id, text, components=kb)
+            else:
+                await bot.send_message(chat_id, text)
+            return True
+    except Exception as e:
+        logger.warning(f"send_message fallback failed: {e}")
+    return False
+
+
 
 
 @bot.event
@@ -97,10 +125,10 @@ async def on_ready():
 @bot.event
 async def on_message(message: Message):
     try:
-        text = message.text
+        text = getattr(message, 'text', None) or getattr(message, 'content', None)
         if not text:
             return
-        text = text.strip()
+        text = str(text).strip()
 
         chat = message.chat
         chat_id = getattr(chat, "id", None)
@@ -392,50 +420,114 @@ async def _dispatch(user_id, data: str, first_name="", username=""):
 
 @bot.event
 async def on_callback(callback: CallbackQuery):
+    """هندلر دکمه‌های شیشه‌ای — همیشه پاسخ می‌دهد."""
+    data = ""
+    user_id = 0
     try:
-        data = (callback.data or "").strip()
-        user = callback.from_user
-        if not user:
-            return
-        user_id = user.id
-        first_name = getattr(user, "first_name", None) or ""
-        username = getattr(user, "username", None) or ""
-        msg = callback.message
-
-        # Group settings (group admins)
-        if data.startswith("gset:"):
-            from core.group_settings import handle_gset_callback
-            text, kb = await handle_gset_callback(bot, int(user_id), data)
-            await _edit_or_reply(msg, text, kb)
+        data = (getattr(callback, "data", None) or "").strip()
+        # کاربر
+        user = (
+            getattr(callback, "from_user", None)
+            or getattr(callback, "user", None)
+            or getattr(callback, "author", None)
+        )
+        if user is None:
+            logger.warning("callback without user")
             try:
-                await callback.answer()
+                await callback.answer("⚠️ کاربر نامشخص", show_alert=True)
             except Exception:
                 pass
+            return
+
+        user_id = int(getattr(user, "id", 0) or 0)
+        first_name = getattr(user, "first_name", None) or ""
+        username = getattr(user, "username", None) or ""
+        msg = getattr(callback, "message", None)
+
+        logger.info(f"callback user={user_id} data={data!r}")
+
+        # اول answer تا لودینگ دکمه قطع شود
+        try:
+            await callback.answer()
+        except Exception as e:
+            logger.debug(f"callback.answer: {e}")
+
+        if not data:
+            if msg is not None:
+                await _edit_or_reply(msg, "⚠️ دکمه بدون داده.", main_menu_kb())
+            return
+
+        # ثبت کاربر
+        try:
+            await create_user(user_id, first_name=first_name, username=username)
+        except Exception:
+            pass
+
+        # Group settings
+        if data.startswith("gset:"):
+            from core.group_settings import handle_gset_callback
+            text, kb = await handle_gset_callback(bot, user_id, data)
+            ok = await _edit_or_reply(msg, text, kb)
+            if not ok:
+                await bot.send_message(user_id, text, components=kb)
             return
 
         # Owner panel
         if data.startswith("owner:"):
             if not await is_owner(user_id):
-                await callback.answer("⛔ فقط Owner", show_alert=True)
+                try:
+                    await callback.answer("⛔ فقط Owner", show_alert=True)
+                except Exception:
+                    pass
                 return
             from admin.panel import handle_owner_callback
             await handle_owner_callback(bot, callback, data)
             return
 
-        text, kb = await _dispatch(user_id, data, first_name, username)
-        await _edit_or_reply(msg, text, kb)
+        # بقیه منوها
+        result = await _dispatch(user_id, data, first_name, username)
+        if isinstance(result, tuple) and len(result) >= 2:
+            text, kb = result[0], result[1]
+        elif isinstance(result, tuple) and len(result) == 1:
+            text, kb = result[0], main_menu_kb()
+        elif isinstance(result, str):
+            text, kb = result, main_menu_kb()
+        else:
+            text, kb = WELCOME, main_menu_kb()
+
+        ok = await _edit_or_reply(msg, text, kb)
+        if not ok:
+            # آخرین تلاش: پیام جدید به کاربر
+            try:
+                await bot.send_message(user_id, text, components=kb)
+            except Exception as e:
+                logger.error(f"final send failed: {e}")
+
+    except Exception as e:
+        logger.error(f"callback error: {e}")
+        traceback.print_exc()
         try:
-            await callback.answer()
+            await callback.answer(f"خطا: {type(e).__name__}", show_alert=True)
+        except Exception:
+            pass
+        try:
+            if user_id:
+                await bot.send_message(user_id, f"⚠️ خطا در دکمه `{data}`:\n`{e}`")
         except Exception:
             pass
 
-    except Exception as e:
-        logger.error(f"callback: {e}")
-        traceback.print_exc()
-        try:
-            await callback.answer("خطا!", show_alert=True)
-        except Exception:
-            pass
+
+
+
+# پشتیبانی از هر دو سبک event و handler (نسخه‌های مختلف bale)
+try:
+    from bale.handlers import CallbackQueryHandler
+    @bot.handle(CallbackQueryHandler())
+    async def _callback_handler_fallback(callback: CallbackQuery):
+        # اگر event on_callback قبلاً جواب داده، دوباره اجرا می‌شود — ایرادی ندارد
+        await on_callback(callback)
+except Exception as _e:
+    logger.debug(f"CallbackQueryHandler not registered: {_e}")
 
 
 if __name__ == "__main__":
