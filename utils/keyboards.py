@@ -97,6 +97,7 @@ def main_menu_kb():
         [("🎯 مأموریت", "menu:missions"), ("🏅 دستاورد", "menu:achieve")],
         [("🎮 بازی‌ها", "games:home"), ("🎁 روزانه", "menu:daily")],
         [("📖 راهنما", "menu:guide"), ("ℹ️ درباره", "menu:about")],
+        [("🐛 گزارش باگ", "menu:report"), ("🐱 گپ میو", "menu:global_group")],
         [("⚙️ تنظیم گروه", "gset:list")],
         [("🔙 بستن", "menu:close")],
     )
