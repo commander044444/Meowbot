@@ -151,11 +151,14 @@ async def on_message(message: Message):
             # fallback: گروه معمولاً title دارد
             private = not bool(chat_title)
 
-        if chat_id and (chat_title or chat_username):
+        # ثبت گروه + عضویت کاربر در گروه (برای لیست تنظیمات گروه)
+        if chat_id and not private:
             try:
+                from database.groups import register_group, register_group_user
                 await register_group(chat_id, chat_title, chat_username or "")
-            except Exception:
-                pass
+                await register_group_user(int(user_id), chat_id)
+            except Exception as e:
+                logger.debug(f"register group/user: {e}")
 
         try:
             await create_user(int(user_id), first_name=first_name, username=username, chat_id=chat_id)
@@ -180,6 +183,32 @@ async def on_message(message: Message):
         if text in ("/owner", "owner", "پنل مالک", "👑") and await is_owner(user_id):
             from admin.panel import show_owner_panel
             await show_owner_panel(message)
+            return
+
+
+        # ---- لینک دستی گروه برای تنظیمات ----
+        if private and (text.startswith("/addgroup") or text.startswith("addgroup")):
+            parts = text.split()
+            if len(parts) < 2:
+                await message.reply(
+                    "فرمت:\n`/addgroup CHAT_ID`\n"
+                    "آیدی گروه را بفرست تا به لیست تنظیماتت اضافه شود.\n"
+                    "ربات باید داخل آن گروه باشد."
+                )
+                return
+            gid = parts[1].strip()
+            try:
+                from database.groups import register_group, register_group_user
+                await register_group(gid, title="", username="")
+                await register_group_user(int(user_id), gid)
+                from core.group_settings import show_group_list
+                txt, kb = await show_group_list(int(user_id))
+                await message.reply(
+                    f"✅ گروه `{gid}` به لیستت اضافه شد.\n\n" + txt,
+                    components=kb,
+                )
+            except Exception as e:
+                await message.reply(f"❌ خطا: `{e}`")
             return
 
         # ---- تنظیمات گروه (ادمین گروه در PV) ----
