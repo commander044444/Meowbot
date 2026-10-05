@@ -7,21 +7,30 @@
 
 from bale import InlineKeyboardMarkup, InlineKeyboardButton
 
+# owner برای قفل پنل گروهی (context)
+from contextvars import ContextVar
+_panel_owner: ContextVar = ContextVar("panel_owner", default=None)
 
-def glass(*rows) -> InlineKeyboardMarkup:
+def set_panel_owner(user_id):
+    return _panel_owner.set(int(user_id) if user_id is not None else None)
+
+def reset_panel_owner(token):
+    try:
+        _panel_owner.reset(token)
+    except Exception:
+        pass
+
+def get_panel_owner():
+    return _panel_owner.get()
+
+
+
+def glass(*rows, owner_id=None) -> InlineKeyboardMarkup:
     """
     ساخت کیبورد شیشه‌ای سازگار با Bale.
-
-    هر آرگومان یک ردیف است:
-      - لیست/تاپل از (text, callback_data)
-      - یا یک (text, callback_data) تکی
-
-    مثال:
-      glass(
-        [("A", "a"), ("B", "b")],   # ردیف 1: دو دکمه
-        [("C", "c")],               # ردیف 2: یک دکمه
-      )
+    اگر owner_id داده شود، callbackها قفل می‌شوند برای همان کاربر (در گروه).
     """
+    from utils.panel_lock import tag_data
     kb = InlineKeyboardMarkup()
     row_num = 1
 
@@ -29,7 +38,6 @@ def glass(*rows) -> InlineKeyboardMarkup:
         if not row:
             continue
 
-        # تک‌دکمه به صورت tuple: ("text", "data")
         if (
             isinstance(row, tuple)
             and len(row) == 2
@@ -48,7 +56,8 @@ def glass(*rows) -> InlineKeyboardMarkup:
             text, data = item[0], item[1]
             if not isinstance(text, str) or not isinstance(data, str):
                 continue
-            # مهم: فقط یک دکمه + row عددی
+            if owner_id is not None:
+                data = tag_data(data, owner_id)
             kb.add(
                 InlineKeyboardButton(text=text, callback_data=data),
                 row=row_num,
