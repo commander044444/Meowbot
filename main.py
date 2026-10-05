@@ -156,6 +156,21 @@ async def on_message(message: Message):
             await message.reply(txt, components=kb)
             return
 
+        # ---- Pet name input (اولویت بالاتر از Owner pending) ----
+        if private:
+            from pet.system import handle_name_input, try_call_pet
+            name_text, name_kb = await handle_name_input(int(user_id), text)
+            if name_text is not None:
+                if name_kb:
+                    await message.reply(name_text, components=name_kb)
+                else:
+                    await message.reply(name_text)
+                return
+            call = await try_call_pet(int(user_id), text)
+            if call:
+                await message.reply(call)
+                return
+
         # ---- Owner pending text (broadcast, add admin, economy, ...) ----
         if await is_owner(user_id):
             from admin.panel import handle_owner_text
@@ -200,20 +215,6 @@ async def on_message(message: Message):
                 await message.reply(f"✅ {field} `{tid}`\n{o} → {n}", components=main_menu_kb())
                 return
 
-        # ---- Pet name input (private) ----
-        if private:
-            from pet.system import handle_name_input, try_call_pet
-            name_text, name_kb = await handle_name_input(user_id, text)
-            if name_text is not None:
-                if name_kb:
-                    await message.reply(name_text, components=name_kb)
-                else:
-                    await message.reply(name_text)
-                return
-            call = await try_call_pet(user_id, text)
-            if call:
-                await message.reply(call)
-                return
 
         # ---- Bank pending amount ----
         from economy.bank_ui import handle_amount_input
