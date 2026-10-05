@@ -122,17 +122,64 @@ async def get_or_create_flow(user_id):
 
 
 async def handle_name_input(user_id, text: str):
+    """اگر Pet منتظر نام است، نام را ذخیره می‌کند. وگرنه (None, None)."""
     pet = await get_pet(user_id)
-    if not pet or not pet.get("awaiting_name"):
+    if not pet:
         return None, None
-    name = text.strip()
+
+    awaiting = pet.get("awaiting_name")
+    if awaiting is None:
+        awaiting = False
+    if isinstance(awaiting, (int, float)):
+        awaiting = bool(awaiting)
+    if isinstance(awaiting, str):
+        awaiting = awaiting.lower() in ("1", "true", "t", "yes")
+    if not awaiting:
+        return None, None
+
+    name = (text or "").strip()
+    blocked = {
+        "/start", "start", "منو", "شروع", "/menu", "/owner", "owner",
+        "پنل مالک", "پروفایل", "رنکینگ", "تنظیم گروه", "لغو", "cancel",
+    }
+    if name.lower() in blocked or name in blocked:
+        return None, None
+
     if len(name) < 2 or len(name) > 20:
-        return "❌ نام باید بین ۲ تا ۲۰ حرف باشد.", pet_home_kb(True, True)
-    if not re.match(r"^[\w\u0600-\u06FF\s\-]+$", name):
+        return (
+            "❌ نام باید بین ۲ تا ۲۰ حرف باشد.\nیک نام قشنگ بفرست 🐱",
+            pet_home_kb(True, True),
+        )
+
+    # فارسی / انگلیسی / عدد / فاصله
+    if not re.match(r"^[\w\u0600-\u06FF\s\-]+$", name, re.UNICODE):
         return "❌ فقط حروف، عدد و فاصله مجاز است.", pet_home_kb(True, True)
-    await update_pet(user_id, pet_name=name, awaiting_name=False)
+
+    try:
+        await update_pet(user_id, pet_name=name, awaiting_name=False)
+    except Exception as e:
+        return f"❌ ذخیره نام ناموفق بود: `{e}`", pet_home_kb(True, True)
+
     pet = await get_pet(user_id)
-    return f"🎉 نام پیشی‌ات شد: **{name}**\n\n{pet_card(pet)}", pet_home_kb(True, False)
+    saved = (pet or {}).get("pet_name") or ""
+    if not saved or pet.get("awaiting_name"):
+        try:
+            from database.pool import execute
+            await execute(
+                "UPDATE pets SET pet_name = $2, awaiting_name = FALSE WHERE user_id = $1",
+                int(user_id),
+                name,
+            )
+            pet = await get_pet(user_id)
+            saved = (pet or {}).get("pet_name") or name
+        except Exception as e:
+            return f"❌ خطای دیتابیس هنگام ذخیره نام: `{e}`", pet_home_kb(True, True)
+
+    return (
+        f"🎉 نام پیشی‌ات ثبت شد: **{saved}**\n\n{pet_card(pet)}",
+        pet_home_kb(True, False),
+    )
+
 
 
 async def try_call_pet(user_id, text: str):
