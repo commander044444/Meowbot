@@ -218,28 +218,67 @@ async def try_call_pet(user_id, text: str):
     return msg + bonus
 
 
+
+async def _need_item(user_id, item_type: str, title: str):
+    """اگر آیتم ندارد پیام خرید برگردان."""
+    from database.inventory import find_usable_item
+    item, meta = await find_usable_item(user_id, item_type)
+    if not item:
+        return None, None, (
+            f"❌ برای **{title}** باید از فروشگاه چیزی بخری!\n"
+            f"🛒 منو → فروشگاه → آیتم‌های Pet\n\n"
+            f"نوع لازم: `{item_type}`",
+            pet_home_kb(True),
+        )
+    return item, meta, None
+
+
 async def action_feed(user_id):
     pet = await get_pet(user_id)
     if not pet or pet.get("awaiting_name"):
-        return "❌ اول Pet بساز و نام بذار!", pet_home_kb(False, True)
+        return "❌ اول Pet بساز و اسم بذار!", pet_home_kb(False)
     if pet.get("is_sleeping"):
-        return "💤 Pet خوابه! اول بیدارش کن.", pet_home_kb(True)
+        return "💤 گربه خوابه؛ اول بیدارش کن.", pet_home_kb(True)
+
+    item, meta, err = await _need_item(user_id, "food", "غذا دادن")
+    if err:
+        return err
+
+    from database.inventory import consume_use
+    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    if not ok:
+        return "❌ این غذا تموم شده. از فروشگاه بخر.", pet_home_kb(True)
+
+    effect = meta if meta else {}
+    # effect ممکن است از shop باشد — از meta آیتم
+    hunger_add = int(effect.get("hunger") or 25)
+    rel_add = int(effect.get("relationship") or 0)
+    xp_add = int(effect.get("xp") or PET_XP_FEED)
+    mood_add = int(effect.get("mood") or 3)
+
     now = time.time()
     cd = PET_FEED_COOLDOWN - (now - float(pet.get("last_feed") or 0))
     if cd > 0:
         return f"⏳ غذا بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
-    hunger = clamp(int(pet.get("hunger") or 0) + PET_FEED_HUNGER)
-    xp = int(pet.get("xp") or 0) + PET_XP_FEED
+
+    hunger = clamp(int(pet.get("hunger") or 0) + hunger_add)
+    rel = clamp(int(pet.get("relationship") or 50) + rel_add)
+    mood = clamp(int(pet.get("mood") or 70) + mood_add)
+    xp = int(pet.get("xp") or 0) + xp_add
     level = int(pet.get("level") or 1)
     level, xp, leveled = _apply_xp(level, xp)
-    await update_pet(user_id, hunger=hunger, xp=xp, level=level, last_feed=now,
-                     foods_given=int(pet.get("foods_given") or 0) + 1,
-                     interaction_count=int(pet.get("interaction_count") or 0) + 1,
-                     last_interaction=now, mood=clamp(int(pet.get("mood") or 70) + 5))
+    await update_pet(
+        user_id,
+        hunger=hunger, relationship=rel, mood=mood, xp=xp, level=level,
+        last_feed=now, foods_given=int(pet.get("foods_given") or 0) + 1,
+        interaction_count=int(pet.get("interaction_count") or 0) + 1,
+        last_interaction=now,
+    )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(FEED_MESSAGES).format(name=name)
+    msg += f"\n🥣 از: {item.get('item_id')}\n🔋 باقی استفاده غذا: `{left}`"
     if leveled:
-        msg += f"\n\n🎉 Level Up → **{level}**!"
+        msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
     return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
 
@@ -249,38 +288,60 @@ async def action_play(user_id, kind="ball"):
     if not pet or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
     if pet.get("is_sleeping"):
-        return "💤 خوابه!", pet_home_kb(True)
+        return "💤 خوابه؛ نمی‌تونه بازی کنه.", pet_home_kb(True)
+
+    item, meta, err = await _need_item(user_id, "toy", "بازی کردن")
+    if err:
+        return err
+
+    from database.inventory import consume_use
+    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    if not ok:
+        return "❌ اسباب‌بازی تموم شده. از فروشگاه بخر.", pet_home_kb(True)
+
+    effect = meta or {}
+    energy_add = int(effect.get("energy") or 15)
+    xp_add = int(effect.get("xp") or PET_XP_PLAY)
+    rel_add = int(effect.get("relationship") or 3)
+    mood_add = int(effect.get("mood") or 5)
+
     now = time.time()
     cd = PET_PLAY_COOLDOWN - (now - float(pet.get("last_play") or 0))
     if cd > 0:
         return f"⏳ بازی بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
-    energy = int(pet.get("energy") or 0)
-    if energy < PET_PLAY_ENERGY_COST:
-        return "⚡ انرژی کافی نیست! بذار بخوابه یا بعداً.", pet_home_kb(True)
-    energy = clamp(energy - PET_PLAY_ENERGY_COST)
-    rel = clamp(int(pet.get("relationship") or 50) + PET_PLAY_RELATIONSHIP)
-    xp = int(pet.get("xp") or 0) + PET_XP_PLAY
+
+    energy = clamp(int(pet.get("energy") or 0) + energy_add)
+    # بازی کمی گرسنگی می‌آورد
+    hunger = clamp(int(pet.get("hunger") or 80) - 5)
+    rel = clamp(int(pet.get("relationship") or 50) + rel_add)
+    mood = clamp(int(pet.get("mood") or 70) + mood_add)
+    xp = int(pet.get("xp") or 0) + xp_add
     level = int(pet.get("level") or 1)
     level, xp, leveled = _apply_xp(level, xp)
-    await update_pet(user_id, energy=energy, relationship=rel, xp=xp, level=level,
-                     last_play=now, games_played=int(pet.get("games_played") or 0) + 1,
-                     interaction_count=int(pet.get("interaction_count") or 0) + 1,
-                     last_interaction=now, mood=clamp(int(pet.get("mood") or 70) + 8))
+    await update_pet(
+        user_id,
+        energy=energy, hunger=hunger, relationship=rel, mood=mood,
+        xp=xp, level=level, last_play=now,
+        games_played=int(pet.get("games_played") or 0) + 1,
+        interaction_count=int(pet.get("interaction_count") or 0) + 1,
+        last_interaction=now,
+    )
     name = pet.get("pet_name") or "Pet"
-    msgs = PLAY_MESSAGES.get(kind, PLAY_MESSAGES["ball"])
-    msg = random.choice(msgs).format(name=name)
+    msg = random.choice(PLAY_MESSAGES).format(name=name)
+    msg += f"\n🎾 با: {item.get('item_id')}\n🔋 باقی استفاده اسباب‌بازی: `{left}`"
     if leveled:
-        msg += f"\n\n🎉 Level Up → **{level}**!"
+        msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
     return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
 
 
 async def action_pet(user_id):
+    """نوازش — بدون آیتم فروشگاه."""
     pet = await get_pet(user_id)
     if not pet or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
     if pet.get("is_sleeping"):
-        return "💤 خوابه... آروم نوازشش کن بعداً 😴", pet_home_kb(True)
+        return "💤 داره می‌خوابه...", pet_home_kb(True)
     now = time.time()
     cd = PET_PET_COOLDOWN - (now - float(pet.get("last_pet") or 0))
     if cd > 0:
@@ -289,9 +350,11 @@ async def action_pet(user_id):
     xp = int(pet.get("xp") or 0) + PET_XP_PET
     level = int(pet.get("level") or 1)
     level, xp, leveled = _apply_xp(level, xp)
-    await update_pet(user_id, relationship=rel, xp=xp, level=level, last_pet=now,
-                     interaction_count=int(pet.get("interaction_count") or 0) + 1,
-                     last_interaction=now, mood=clamp(int(pet.get("mood") or 70) + 3))
+    await update_pet(
+        user_id, relationship=rel, xp=xp, level=level, last_pet=now,
+        interaction_count=int(pet.get("interaction_count") or 0) + 1,
+        last_interaction=now, mood=clamp(int(pet.get("mood") or 70) + 3),
+    )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(PET_MESSAGES).format(name=name)
     if leveled:
@@ -305,6 +368,8 @@ async def action_sleep(user_id):
     if not pet or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
     now = time.time()
+
+    # بیدار شدن
     if pet.get("is_sleeping"):
         until = float(pet.get("sleep_until") or 0)
         if now >= until:
@@ -314,72 +379,84 @@ async def action_sleep(user_id):
             pet = await get_pet(user_id)
             return random.choice(WAKE_MESSAGES).format(name=name) + "\n\n" + pet_card(pet), pet_home_kb(True)
         return f"💤 هنوز خوابه... `{fmt_cd(until - now)}` مونده", pet_home_kb(True)
+
+    # برای خواباندن باید جای خواب داشته باشد
+    item, meta, err = await _need_item(user_id, "bed", "خواباندن")
+    if err:
+        return (
+            "❌ برای خوابوندن گربه باید **جای خواب** از فروشگاه بخری!\n"
+            "🛒 منو → فروشگاه → 🛏 جای خواب\n\n"
+            "بدون جای خواب نمی‌تونه راحت بخوابه 😿",
+            pet_home_kb(True),
+        )
+
     cd = PET_SLEEP_COOLDOWN - (now - float(pet.get("last_sleep") or 0))
     if cd > 0:
         return f"⏳ خواب بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
-    await update_pet(user_id, is_sleeping=True, sleep_until=now + PET_SLEEP_DURATION, last_sleep=now)
+
+    from database.inventory import consume_use
+    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    if not ok:
+        return "❌ جای خواب فرسوده شده. یکی جدید از فروشگاه بخر.", pet_home_kb(True)
+
+    effect = meta or {}
+    energy_bonus = int(effect.get("energy") or PET_SLEEP_ENERGY)
+    duration = PET_SLEEP_DURATION
+
+    await update_pet(
+        user_id,
+        is_sleeping=True,
+        sleep_until=now + duration,
+        last_sleep=now,
+    )
     name = pet.get("pet_name") or "Pet"
-    return random.choice(SLEEP_MESSAGES).format(name=name) + f"\n⏱ {PET_SLEEP_DURATION}ثانیه", pet_home_kb(True)
+    msg = random.choice(SLEEP_MESSAGES).format(name=name)
+    msg += f"\n🛏 با: {item.get('item_id')}\n🔋 باقی استفاده جای خواب: `{left}`\n⏱ حدود {duration} ثانیه"
+    return msg, pet_home_kb(True)
 
 
 async def action_gift(user_id):
     pet = await get_pet(user_id)
     if not pet or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
+
+    item, meta, err = await _need_item(user_id, "gift", "هدیه دادن")
+    if err:
+        return err
+
     now = time.time()
     cd = PET_GIFT_COOLDOWN - (now - float(pet.get("last_gift") or 0))
     if cd > 0:
         return f"⏳ هدیه بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
-    chance = PET_GIFT_CHANCE_BASE + int(pet.get("level") or 1) * 0.01
-    got = random.random() < min(0.5, chance)
-    xp = int(pet.get("xp") or 0) + PET_XP_GIFT
+
+    from database.inventory import consume_use
+    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    if not ok:
+        return "❌ هدیه تموم شده.", pet_home_kb(True)
+
+    effect = meta or {}
+    rel_add = int(effect.get("relationship") or 12)
+    mood_add = int(effect.get("mood") or 8)
+    xp_add = int(effect.get("xp") or PET_XP_GIFT)
+
+    rel = clamp(int(pet.get("relationship") or 50) + rel_add)
+    mood = clamp(int(pet.get("mood") or 70) + mood_add)
+    xp = int(pet.get("xp") or 0) + xp_add
     level = int(pet.get("level") or 1)
     level, xp, leveled = _apply_xp(level, xp)
-    fields = dict(xp=xp, level=level, last_gift=now, last_interaction=now,
-                  interaction_count=int(pet.get("interaction_count") or 0) + 1)
+    await update_pet(
+        user_id,
+        relationship=rel, mood=mood, xp=xp, level=level,
+        last_gift=now, gifts_received=int(pet.get("gifts_received") or 0) + 1,
+        last_interaction=now,
+        interaction_count=int(pet.get("interaction_count") or 0) + 1,
+    )
     name = pet.get("pet_name") or "Pet"
-    if got:
-        coins = random.randint(5, 25)
-        await add_meow_coins(user_id, coins)
-        fields["gifts_received"] = int(pet.get("gifts_received") or 0) + 1
-        await update_pet(user_id, **fields)
-        msg = random.choice(GIFT_MESSAGES).format(name=name) + f"\n🪙 +{coins} Meow Coin!"
-    else:
-        await update_pet(user_id, **fields)
-        msg = random.choice(NO_GIFT_MESSAGES).format(name=name)
+    msg = f"🎁 به **{name}** هدیه دادی!\nباقی استفاده: `{left}`"
     if leveled:
-        msg += f"\n\n🎉 Level Up → **{level}**!"
+        msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
     return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
-
-
-async def action_levelup(user_id):
-    pet = await get_pet(user_id)
-    if not pet or pet.get("awaiting_name"):
-        return "❌ اول Pet بساز!", pet_home_kb(False)
-    level = int(pet.get("level") or 1)
-    if level >= PET_MAX_LEVEL:
-        return f"👑 Pet در حداکثر لول ({PET_MAX_LEVEL}) است!", pet_home_kb(True)
-    cost = level * PET_LEVELUP_COIN_PER_LEVEL
-    coins = await get_meow_coins(user_id)
-    if coins < cost:
-        return f"❌ نیاز به `{cost}` کوین داری. موجودی: `{coins}`", pet_home_kb(True)
-    ok = await spend_meow_coins(user_id, cost)
-    if not ok:
-        return "❌ برداشت کوین ناموفق.", pet_home_kb(True)
-    await update_pet(user_id, level=level + 1, xp=0)
-    pet = await get_pet(user_id)
-    name = pet.get("pet_name") or "Pet"
-    return f"🎉 {name} به Level **{level + 1}** رسید!\n🪙 -{cost}\n\n{pet_card(pet)}", pet_home_kb(True)
-
-
-def _apply_xp(level, xp):
-    leveled = False
-    while level < PET_MAX_LEVEL and xp >= xp_needed(level):
-        xp -= xp_needed(level)
-        level += 1
-        leveled = True
-    return level, xp, leveled
 
 
 async def handle_pet_callback(user_id, data: str, first_name="", username=""):
