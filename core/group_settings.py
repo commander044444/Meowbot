@@ -127,23 +127,42 @@ def status_text(g: dict) -> str:
 
 
 async def show_group_list(user_id: int):
+    from database.groups import get_all_groups
     groups = await get_user_groups(user_id)
+
+    # Owner همه گروه‌های ثبت‌شده را می‌بیند
+    if int(user_id) == int(OWNER_ID):
+        all_g = await get_all_groups()
+        seen = {g["chat_id"] for g in (groups or [])}
+        for g in all_g or []:
+            if g["chat_id"] not in seen:
+                groups.append(g)
+
     if not groups:
-        return (
+        text = (
             "⚙️ **تنظیمات گروه**\n"
             "━━━━━━━━━━━━━━\n"
             "گروهی پیدا نشد.\n\n"
-            "اول ربات را به گروه اضافه کن و یک پیام در گروه بفرست "
-            "تا گروه ثبت شود، بعد دوباره اینجا بیا.",
-            _kb([[("🔄 تلاش دوباره", "gset:list")], [("🏠 منوی اصلی", "menu:main")]]),
+            "۱) ربات را به گروه اضافه کن\n"
+            "۲) در همان گروه یک پیام بفرست (مثلاً میو)\n"
+            "۳) دوباره اینجا «بروزرسانی» بزن\n\n"
+            "یا آیدی عددی گروه را با دستور بفرست:\n"
+            "`/addgroup CHAT_ID`"
         )
+        return text, _kb([
+            [("🔄 بروزرسانی لیست", "gset:list")],
+            [("🏠 منوی اصلی", "menu:main")],
+        ])
+
     text = (
         "⚙️ **تنظیمات گروه**\n"
         "━━━━━━━━━━━━━━\n"
-        "گروهی که ادمینش هستی را انتخاب کن:\n"
-        "(اگر ادمین نباشی، تغییر اعمال نمی‌شود)"
+        f"تعداد: `{len(groups)}`\n"
+        "گروه را انتخاب کن:\n"
+        "(فقط ادمین همان گروه می‌تواند تغییر دهد)"
     )
     return text, list_groups_kb(groups)
+
 
 
 async def handle_gset_callback(bot, user_id: int, data: str):
