@@ -1,24 +1,82 @@
+# ==========================================
+# Inventory + Shop
+# ==========================================
+
 from .pool import fetch, fetchrow, execute, fetchval
 import json
 
 
 async def get_inventory(user_id: int):
     rows = await fetch(
-        "SELECT * FROM inventory WHERE user_id = $1 ORDER BY item_type, item_id",
+        "SELECT * FROM inventory WHERE user_id = $1 AND quantity > 0 ORDER BY item_type, item_id",
         int(user_id),
     )
     return [dict(r) for r in rows]
 
 
+async def get_inv_item(user_id: int, item_id: str):
+    row = await fetchrow(
+        "SELECT * FROM inventory WHERE user_id = $1 AND item_id = $2",
+        int(user_id), item_id,
+    )
+    return dict(row) if row else None
+
+
+def _meta(row) -> dict:
+    if not row:
+        return {}
+    m = row.get("meta")
+    if isinstance(m, str):
+        try:
+            return json.loads(m)
+        except Exception:
+            return {}
+    return dict(m or {})
+
+
 async def add_item(user_id: int, item_id: str, item_type: str, quantity: int = 1, meta: dict = None):
+    """اضافه کردن آیتم. اگر meta.uses_left باشد، روی خرید جدید ست می‌شود / جمع می‌شود."""
+    meta = dict(meta or {})
+    existing = await get_inv_item(user_id, item_id)
+    if existing:
+        old_meta = _meta(existing)
+        # اگر durability دارد، uses را جمع کن
+        if "uses_left" in meta or "uses_left" in old_meta:
+            old_uses = int(old_meta.get("uses_left") or 0)
+            add_uses = int(meta.get("uses_left") or meta.get("max_uses") or 0)
+            if add_uses <= 0 and "max_uses" in meta:
+                add_uses = int(meta["max_uses"])
+            new_uses = old_uses + add_uses
+            max_u = int(meta.get("max_uses") or old_meta.get("max_uses") or new_uses)
+            new_meta = {**old_meta, **meta, "uses_left": new_uses, "max_uses": max_u}
+            await execute(
+                """
+                UPDATE inventory SET quantity = quantity + $3, meta = $4::jsonb
+                WHERE user_id = $1 AND item_id = $2
+                """,
+                int(user_id), item_id, int(quantity), json.dumps(new_meta),
+            )
+            return
+        await execute(
+            """
+            UPDATE inventory SET quantity = quantity + $3
+            WHERE user_id = $1 AND item_id = $2
+            """,
+            int(user_id), item_id, int(quantity),
+        )
+        return
+
+    # آیتم جدید
+    if "max_uses" in meta and "uses_left" not in meta:
+        meta["uses_left"] = int(meta["max_uses"])
     await execute(
         """
         INSERT INTO inventory (user_id, item_id, item_type, quantity, meta)
         VALUES ($1, $2, $3, $4, $5::jsonb)
         ON CONFLICT (user_id, item_id) DO UPDATE SET
-            quantity = inventory.quantity + $4
+            quantity = inventory.quantity + EXCLUDED.quantity
         """,
-        int(user_id), item_id, item_type, int(quantity), json.dumps(meta or {}),
+        int(user_id), item_id, item_type, int(quantity), json.dumps(meta),
     )
 
 
@@ -30,8 +88,7 @@ async def remove_item(user_id: int, item_id: str, quantity: int = 1) -> bool:
         """,
         int(user_id), item_id, int(quantity),
     )
-    if result == "UPDATE 0":
-        return False
+    # asyncpg may return status string
     await execute(
         "DELETE FROM inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0",
         int(user_id), item_id,
@@ -39,25 +96,190 @@ async def remove_item(user_id: int, item_id: str, quantity: int = 1) -> bool:
     return True
 
 
+async def consume_use(user_id: int, item_id: str, amount: int = 1) -> tuple:
+    """
+    یک بار استفاده از آیتم با دوام (uses_left).
+    Returns (ok, uses_left, message)
+    """
+    row = await get_inv_item(user_id, item_id)
+    if not row or int(row.get("quantity") or 0) <= 0:
+        return False, 0, "نداری"
+    meta = _meta(row)
+    uses = int(meta.get("uses_left") or 0)
+    if uses <= 0:
+        # آیتم بدون دوام → یک عدد از quantity کم کن
+        await remove_item(user_id, item_id, 1)
+        return True, 0, "مصرف شد"
+    if uses < amount:
+        return False, uses, "مصرف باقی‌مانده کافی نیست"
+    uses -= amount
+    meta["uses_left"] = uses
+    if uses <= 0:
+        await execute(
+            "DELETE FROM inventory WHERE user_id = $1 AND item_id = $2",
+            int(user_id), item_id,
+        )
+        return True, 0, "تموم شد"
+    await execute(
+        "UPDATE inventory SET meta = $3::jsonb WHERE user_id = $1 AND item_id = $2",
+        int(user_id), item_id, json.dumps(meta),
+    )
+    return True, uses, "ok"
+
+
+async def find_usable_item(user_id: int, item_type: str):
+    """اولین آیتم از نوع مشخص که هنوز uses دارد."""
+    rows = await get_inventory(user_id)
+    for r in rows:
+        if (r.get("item_type") or "") != item_type:
+            continue
+        meta = _meta(r)
+        uses = meta.get("uses_left")
+        if uses is None:
+            # quantity-based
+            if int(r.get("quantity") or 0) > 0:
+                return r, meta
+        elif int(uses) > 0:
+            return r, meta
+    return None, {}
+
+
+async def has_item_type(user_id: int, item_type: str) -> bool:
+    item, _ = await find_usable_item(user_id, item_type)
+    return item is not None
+
+
+async def has_item_id(user_id: int, item_id: str) -> bool:
+    row = await get_inv_item(user_id, item_id)
+    if not row or int(row.get("quantity") or 0) <= 0:
+        return False
+    meta = _meta(row)
+    uses = meta.get("uses_left")
+    if uses is None:
+        return True
+    return int(uses) > 0
+
+
+# ---------- Shop catalog (Pet-focused) ----------
+# max_uses: تعداد استفاده (مثلاً ۲۰)
+# effect: اثر روی Pet
+
+PET_SHOP_CATALOG = [
+    # غذا
+    {
+        "item_id": "food_kibble",
+        "name": "🥣 خوراک گربه",
+        "description": "۲۰ وعده غذا — گرسنگی را کم می‌کند",
+        "price": 40,
+        "rarity": "common",
+        "item_type": "food",
+        "effect": {"hunger": 25, "max_uses": 20, "mood": 2},
+    },
+    {
+        "item_id": "food_fish",
+        "name": "🐟 ماهی تازه",
+        "description": "۲۰ وعده — گرسنگی + رابطه",
+        "price": 80,
+        "rarity": "rare",
+        "item_type": "food",
+        "effect": {"hunger": 40, "relationship": 5, "max_uses": 20, "mood": 5},
+    },
+    {
+        "item_id": "food_premium",
+        "name": "🍣 غذای ویژه",
+        "description": "۲۰ وعده لوکس — گرسنگی و XP",
+        "price": 120,
+        "rarity": "epic",
+        "item_type": "food",
+        "effect": {"hunger": 50, "xp": 8, "relationship": 8, "max_uses": 20, "mood": 8},
+    },
+    # اسباب‌بازی / سرگرمی
+    {
+        "item_id": "toy_ball",
+        "name": "🎾 توپ بازی",
+        "description": "۲۰ بار بازی — انرژی و XP",
+        "price": 50,
+        "rarity": "common",
+        "item_type": "toy",
+        "effect": {"energy": 15, "xp": 6, "max_uses": 20, "mood": 5},
+    },
+    {
+        "item_id": "toy_mouse",
+        "name": "🐭 موش اسباب‌بازی",
+        "description": "۲۰ بار — انرژی + رابطه",
+        "price": 70,
+        "rarity": "rare",
+        "item_type": "toy",
+        "effect": {"energy": 20, "relationship": 6, "xp": 8, "max_uses": 20, "mood": 8},
+    },
+    {
+        "item_id": "toy_laser",
+        "name": "🔴 لیزر بازی",
+        "description": "۲۰ بار سرگرمی قوی",
+        "price": 100,
+        "rarity": "epic",
+        "item_type": "toy",
+        "effect": {"energy": 25, "xp": 12, "mood": 12, "max_uses": 20},
+    },
+    # جای خواب (برای خواباندن اجباری)
+    {
+        "item_id": "bed_basic",
+        "name": "🛏 جای خواب ساده",
+        "description": "۲۰ بار خواب — بدون این نمی‌توانی بخوابانی",
+        "price": 90,
+        "rarity": "common",
+        "item_type": "bed",
+        "effect": {"energy": 40, "max_uses": 20},
+    },
+    {
+        "item_id": "bed_luxury",
+        "name": "👑 جای خواب لوکس",
+        "description": "۲۰ بار خواب راحت — انرژی بیشتر",
+        "price": 180,
+        "rarity": "epic",
+        "item_type": "bed",
+        "effect": {"energy": 60, "mood": 10, "max_uses": 20},
+    },
+    # هدیه
+    {
+        "item_id": "gift_flower",
+        "name": "🌸 گل هدیه",
+        "description": "۲۰ هدیه — افزایش رابطه",
+        "price": 60,
+        "rarity": "rare",
+        "item_type": "gift",
+        "effect": {"relationship": 12, "mood": 8, "max_uses": 20},
+    },
+]
+
+
 async def seed_shop():
-    items = [
-        ("food_basic", "غذای ساده", "گرسنگی Pet رو کم می‌کنه", 20, -1, "common", "food", {"hunger": 20}),
-        ("food_premium", "غذای ویژه", "گرسنگی + رابطه", 50, -1, "rare", "food", {"hunger": 40, "relationship": 5}),
-        ("toy_ball", "توپ بازی", "انرژی و XP", 30, -1, "common", "toy", {"energy": 10, "xp": 5}),
-        ("gift_flower", "گل هدیه", "رابطه +۱۰", 40, -1, "rare", "gift", {"relationship": 10}),
-        ("boost_xp", "بوست XP", "XP دوبرابر برای ۱ ساعت", 100, 50, "epic", "boost", {"xp_mult": 2, "duration": 3600}),
-    ]
-    for it in items:
+    for it in PET_SHOP_CATALOG:
         await execute(
             """
-            INSERT INTO shop_items (item_id, name, description, price, stock, rarity, item_type, effect)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
-            ON CONFLICT (item_id) DO NOTHING
+            INSERT INTO shop_items (item_id, name, description, price, stock, rarity, item_type, effect, active)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb, TRUE)
+            ON CONFLICT (item_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                price = EXCLUDED.price,
+                rarity = EXCLUDED.rarity,
+                item_type = EXCLUDED.item_type,
+                effect = EXCLUDED.effect,
+                active = TRUE
             """,
-            it[0], it[1], it[2], it[3], it[4], it[5], it[6], json.dumps(it[7]),
+            it["item_id"], it["name"], it["description"], it["price"],
+            -1, it["rarity"], it["item_type"], json.dumps(it["effect"]),
         )
 
 
 async def get_shop_items():
-    rows = await fetch("SELECT * FROM shop_items WHERE active = TRUE ORDER BY price")
+    rows = await fetch(
+        "SELECT * FROM shop_items WHERE active = TRUE ORDER BY item_type, price"
+    )
     return [dict(r) for r in rows]
+
+
+async def get_shop_item(item_id: str):
+    row = await fetchrow("SELECT * FROM shop_items WHERE item_id = $1", item_id)
+    return dict(row) if row else None
