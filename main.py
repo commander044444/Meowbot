@@ -192,6 +192,24 @@ async def on_message(message: Message):
             await message.reply(txt, components=kb)
             return
 
+
+        # ---- گزارش باگ (pending) ----
+        try:
+            from core.reports import is_pending, submit_report
+            if is_pending(int(user_id)):
+                if text in ("لغو", "cancel", "/cancel"):
+                    from core.reports import cancel_report
+                    from core.menu import handle_menu_callback
+                    prev = await cancel_report(int(user_id))
+                    txt, kb = await handle_menu_callback(int(user_id), prev or "menu:main", first_name, private=True)
+                    await message.reply(txt, components=kb)
+                    return
+                txt, kb = await submit_report(bot, int(user_id), text, username, first_name)
+                await message.reply(txt, components=kb)
+                return
+        except Exception as e:
+            logger.error(f"report pending: {e}")
+
         # ---- Pet name input (همیشه اگر awaiting — حتی اگر تشخیص PV اشتباه باشد) ----
         try:
             from pet.system import handle_name_input, try_call_pet
@@ -356,10 +374,10 @@ async def _route_callback_data(message, user_id, data, first_name="", username="
         await message.reply(text)
 
 
-async def _dispatch(user_id, data: str, first_name="", username=""):
+async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None, private=True):
     # Menu
     if data.startswith("menu:") or data.startswith("act:") or data.startswith("rank:"):
-        return await handle_menu_callback(user_id, data, first_name)
+        return await handle_menu_callback(user_id, data, first_name, chat_id=chat_id, private=private)
 
     # Pet
     if data.startswith("pet:"):
@@ -518,6 +536,49 @@ async def on_callback(callback: CallbackQuery):
         except Exception:
             pass
 
+        # Bug reports (user + admin)
+        if data.startswith("report:"):
+            from core.reports import (
+                cancel_report, admin_list_text, admin_view_report, admin_resolve,
+            )
+            from core.menu import handle_menu_callback
+            from database.admins import is_owner as _is_owner_check
+            parts = data.split(":")
+            cmd = parts[1] if len(parts) > 1 else ""
+            if cmd == "cancel":
+                prev = await cancel_report(user_id)
+                text, kb = await handle_menu_callback(user_id, prev or "menu:main", first_name, private=True)
+                await _edit_or_reply(msg, text, kb)
+                return
+            # admin actions
+            if cmd in ("admin_list", "view", "resolve"):
+                # owner or admin
+                from database.admins import get_admin
+                adm = await get_admin(user_id)
+                is_adm = await _is_owner_check(user_id) or (adm and adm.get("enabled", True))
+                if not is_adm:
+                    try:
+                        await callback.answer("⛔ فقط ادمین", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+            if cmd == "admin_list":
+                st = parts[2] if len(parts) > 2 else "open"
+                text, kb = await admin_list_text(st)
+                await _edit_or_reply(msg, text, kb)
+                return
+            if cmd == "view" and len(parts) > 2:
+                text, kb = await admin_view_report(int(parts[2]))
+                await _edit_or_reply(msg, text, kb)
+                return
+            if cmd == "resolve" and len(parts) > 2:
+                text, kb = await admin_resolve(int(parts[2]), user_id, bot)
+                await _edit_or_reply(msg, text, kb)
+                return
+            if cmd == "noop":
+                return
+            return
+
         # Group settings
         if data.startswith("gset:"):
             from core.group_settings import handle_gset_callback
@@ -540,7 +601,17 @@ async def on_callback(callback: CallbackQuery):
             return
 
         # بقیه منوها
-        result = await _dispatch(user_id, data, first_name, username)
+        chat_id = None
+        private = True
+        try:
+            chat = getattr(msg, "chat", None) if msg else None
+            if chat is not None:
+                chat_id = getattr(chat, "id", None)
+                title = getattr(chat, "title", None) or ""
+                private = not bool(title)
+        except Exception:
+            pass
+        result = await _dispatch(user_id, data, first_name, username, chat_id=chat_id, private=private)
         if isinstance(result, tuple) and len(result) >= 2:
             text, kb = result[0], result[1]
         elif isinstance(result, tuple) and len(result) == 1:
