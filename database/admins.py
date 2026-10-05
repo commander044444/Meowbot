@@ -79,18 +79,31 @@ async def is_admin(user_id: int) -> bool:
 
 
 async def has_permission(user_id: int, perm: str) -> bool:
+    """مجوز واقعی بر اساس لیست permissions ادمین. Owner همیشه True."""
     from config import OWNER_ID
-    if int(user_id) == int(OWNER_ID):
-        return True
-    a = await get_admin(user_id)
-    if not a or not a.get("enabled", True):
+    try:
+        if int(user_id) == int(OWNER_ID):
+            return True
+    except Exception:
         return False
-    if str(a.get("role") or "").upper() in ("OWNER", "SUPER_ADMIN"):
+    a = await get_admin(user_id)
+    if not a:
+        return False
+    if not a.get("enabled", True):
+        return False
+    role = str(a.get("role") or "").upper()
+    if role == "OWNER":
         return True
     perms = a.get("permissions") or []
+    if not isinstance(perms, list):
+        perms = []
     if "*" in perms:
         return True
+    # SUPER_ADMIN بدون لیست = همه؛ با لیست = فقط همان‌ها
+    if role == "SUPER_ADMIN" and not perms:
+        return True
     return perm in perms
+
 
 
 async def add_admin(user_id: int, role: str = "ADMIN", permissions=None, added_by=None, note=""):
