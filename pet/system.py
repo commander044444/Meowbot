@@ -61,6 +61,25 @@ def xp_needed(level):
     return max(1, base + growth)
 
 
+def _apply_xp(level, xp):
+    """اضافه کردن XP و ارتقا سطح در صورت نیاز. Returns (level, xp, leveled_up)."""
+    level = max(1, int(level or 1))
+    xp = max(0, int(xp or 0))
+    leveled = False
+    max_level = int(PET_MAX_LEVEL) if PET_MAX_LEVEL else 100
+    while level < max_level:
+        need = xp_needed(level)
+        if xp < need:
+            break
+        xp -= need
+        level += 1
+        leveled = True
+    if level >= max_level:
+        level = max_level
+        xp = min(xp, xp_needed(level) - 1) if level < max_level else xp
+    return level, xp, leveled
+
+
 def hourly_points(level):
     return PET_POINT_BASE + max(1, int(level)) * PET_POINT_PER_LEVEL
 
