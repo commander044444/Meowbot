@@ -1,33 +1,91 @@
 # ==========================================
-# 🎮 Mini Games (Glass UI)
+# 🎮 Mini Games — همیشه قابل بازی؛ جایزه هر ۳ ساعت یک‌بار
 # ==========================================
 
 import random
-from utils.keyboards import games_kb, glass, back_main_kb
-from database.users import add_meow_coins, get_user, create_user
-from database.pool import execute, fetchrow
+import time
 
-# simple in-memory pending games (per user) — for production can move to Redis/DB
-_pending = {}
+from database.users import add_meow_coins, get_user, create_user, update_user
+from utils.keyboards import glass, games_kb, back_main_kb
+
+REWARD_COOLDOWN = 3 * 3600  # ۳ ساعت
+_pending = {}  # user_id -> game state
 
 
 def games_home_text():
     return (
-        "🎮 **Arcade میویی**\n"
+        "🎮 **بازی‌ها**\n"
         "━━━━━━━━━━━━━━\n"
-        "یکی از بازی‌ها را انتخاب کن و کوین ببر!\n"
+        "همیشه می‌تونی بازی کنی.\n"
+        "🎁 جایزه (سکه/XP) فقط **هر ۳ ساعت یک‌بار** داده می‌شود.\n"
         "━━━━━━━━━━━━━━"
     )
 
 
+def fmt_cd(sec):
+    sec = max(0, int(sec))
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}س {m}د"
+    return f"{m}:{s:02d}" if m else f"{s}ث"
+
+
+async def can_reward(user_id: int):
+    """(allowed, remaining_seconds)"""
+    u = await get_user(user_id)
+    if not u:
+        await create_user(user_id)
+        return True, 0
+    last = float(u.get("last_game_reward") or 0)
+    rem = REWARD_COOLDOWN - (time.time() - last)
+    if rem > 0:
+        return False, rem
+    return True, 0
+
+
+async def give_reward(user_id: int, coins: int = 0, note: str = ""):
+    ok, rem = await can_reward(user_id)
+    if not ok:
+        return (
+            f"🎮 بازی ثبت شد، ولی جایزه فعلاً نیست.\n"
+            f"⏳ جایزه بعدی تا `{fmt_cd(rem)}` دیگر\n"
+            f"(هر ۳ ساعت یک‌بار سکه می‌گیری)"
+        )
+    if coins > 0:
+        await add_meow_coins(user_id, coins)
+    try:
+        await update_user(user_id, last_game_reward=time.time())
+    except Exception:
+        # اگر ستون نبود از pool مستقیم
+        try:
+            from database.pool import execute
+            await execute(
+                "UPDATE users SET updated_at = NOW() WHERE user_id = $1",
+                int(user_id),
+            )
+            # store in a simple key if no column - use last_daily style via raw
+            await execute(
+                """
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS last_game_reward DOUBLE PRECISION DEFAULT 0
+                """
+            )
+            await execute(
+                "UPDATE users SET last_game_reward = $2 WHERE user_id = $1",
+                int(user_id), time.time(),
+            )
+        except Exception as e:
+            print(f"give_reward meta: {e}")
+    return f"🎁 جایزه: 🪙 +{coins}" + (f"\n{note}" if note else "")
+
+
 async def start_guess(user_id):
-    num = random.randint(1, 10)
-    _pending[user_id] = {"game": "guess", "answer": num, "tries": 3}
+    answer = random.randint(1, 10)
+    _pending[user_id] = {"game": "guess", "answer": answer, "tries": 3}
     return (
-        "🎲 **حدس عدد**\n"
-        "عددی بین ۱ تا ۱۰ انتخاب کردم.\n"
-        "۳ شانس داری. عدد را بفرست!"
-    ), glass([("❌ انصراف", "games:home")])
+        "🎲 **حدس عدد**\nعدد بین ۱ تا ۱۰ را حدس بزن (۳ شانس).",
+        glass([("❌ انصراف", "games:home")]),
+    )
 
 
 async def start_quiz(user_id):
@@ -44,18 +102,14 @@ async def start_quiz(user_id):
     return f"❓ **کوییز**\n\n{q}", glass(*rows)
 
 
-async def start_catquiz(user_id):
-    return await start_quiz(user_id)
-
-
 async def handle_quiz_answer(user_id, idx: int):
     p = _pending.pop(user_id, None)
     if not p or p.get("game") != "quiz":
         return "❌ بازی فعالی نیست.", games_kb()
     if idx == p["answer"]:
-        await add_meow_coins(user_id, 15)
-        return "✅ درست بود! 🪙 +15", games_kb()
-    return "❌ اشتباه! دوباره امتحان کن.", games_kb()
+        reward_msg = await give_reward(user_id, 15)
+        return f"✅ درست بود!\n{reward_msg}", games_kb()
+    return "❌ اشتباه! دوباره می‌تونی بازی کنی (جایزه طبق قانون ۳ ساعته).", games_kb()
 
 
 async def handle_guess_input(user_id, text: str):
@@ -68,13 +122,13 @@ async def handle_guess_input(user_id, text: str):
         return "❌ یک عدد بفرست.", glass([("❌ انصراف", "games:home")])
     if n == p["answer"]:
         _pending.pop(user_id, None)
-        await add_meow_coins(user_id, 20)
-        return f"🎉 درست! عدد `{n}` بود.\n🪙 +20", games_kb()
+        reward_msg = await give_reward(user_id, 20)
+        return f"🎉 درست! عدد `{n}` بود.\n{reward_msg}", games_kb()
     p["tries"] -= 1
     if p["tries"] <= 0:
         ans = p["answer"]
         _pending.pop(user_id, None)
-        return f"💀 تموم شد! جواب `{ans}` بود.", games_kb()
+        return f"💀 تموم شد! جواب `{ans}` بود.\nدوباره بازی کن (جایزه هر ۳ ساعت).", games_kb()
     hint = "بزرگ‌تر" if n < p["answer"] else "کوچک‌تر"
     return f"❌ نه... `{hint}` امتحان کن. شانس: {p['tries']}", glass([("❌ انصراف", "games:home")])
 
@@ -82,7 +136,9 @@ async def handle_guess_input(user_id, text: str):
 async def handle_games_callback(user_id, data):
     if data == "games:home":
         _pending.pop(user_id, None)
-        return games_home_text(), games_kb()
+        ok, rem = await can_reward(user_id)
+        extra = "✅ جایزه آماده است" if ok else f"⏳ جایزه تا `{fmt_cd(rem)}`"
+        return games_home_text() + f"\n{extra}", games_kb()
     if data == "games:guess":
         return await start_guess(user_id)
     if data in ("games:quiz", "games:catquiz"):
@@ -94,6 +150,6 @@ async def handle_games_callback(user_id, data):
             idx = -1
         return await handle_quiz_answer(user_id, idx)
     if data == "games:reaction":
-        await add_meow_coins(user_id, 5)
-        return "⚡ سریع بودی! 🪙 +5 (نسخه ساده)", games_kb()
+        reward_msg = await give_reward(user_id, 5)
+        return f"⚡ واکنش ثبت شد!\n{reward_msg}", games_kb()
     return games_home_text(), games_kb()
