@@ -253,11 +253,11 @@ async def on_message(message: Message):
                     logger.error(f"pet name reply failed: {e}")
                     await message.reply(name_text)
                 return
-            if private:
-                call = await try_call_pet(int(user_id), text)
-                if call:
-                    await message.reply(call)
-                    return
+            # صدا زدن Pet در گروه و پیوی
+            call = await try_call_pet(int(user_id), text)
+            if call:
+                await message.reply(call)
+                return
         except Exception as e:
             logger.error(f"pet name handler error: {e}")
             import traceback as _tb
@@ -333,6 +333,40 @@ async def on_message(message: Message):
             else:
                 await message.reply(g_text)
             return
+
+        
+        # ---- جنگ میویی با ریپلای در گروه ----
+        if not private and chat_id is not None:
+            try:
+                from battle.system import is_battle_challenge_text, create_challenge
+                if is_battle_challenge_text(text):
+                    reply = getattr(message, "reply_to_message", None) or getattr(message, "replied_message", None)
+                    target_user = None
+                    target_name = ""
+                    if reply is not None:
+                        ta = getattr(reply, "author", None) or getattr(reply, "from_user", None)
+                        if ta is not None:
+                            target_user = int(getattr(ta, "id", 0) or 0)
+                            target_name = getattr(ta, "first_name", None) or "حریف"
+                    if not target_user:
+                        await message.reply(
+                            "⚔️ برای جنگ میویی، روی **پیام حریف ریپلای** کن و بنویس:\n"
+                            "`جنگ میویی`"
+                        )
+                        return
+                    if target_user == int(user_id):
+                        await message.reply("❌ با خودت نمی‌تونی بجنگی!")
+                        return
+                    msg_text, kb = await create_challenge(
+                        int(user_id), first_name, target_user, target_name
+                    )
+                    if kb is None:
+                        await message.reply(msg_text)
+                    else:
+                        await message.reply(msg_text, components=kb)
+                    return
+            except Exception as e:
+                logger.error(f"battle challenge: {e}")
 
         # ---- Meow ----
         if is_meow(text):
