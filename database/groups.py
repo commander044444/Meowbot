@@ -56,6 +56,19 @@ async def get_interaction(chat_id) -> bool:
     return True if val is None else bool(val)
 
 
+async def set_meow_enabled(chat_id, enabled: bool):
+    await execute(
+        "UPDATE groups SET meow_enabled = $2 WHERE chat_id = $1",
+        str(chat_id), bool(enabled),
+    )
+
+
+async def get_meow_enabled(chat_id) -> bool:
+    val = await fetchval("SELECT meow_enabled FROM groups WHERE chat_id = $1", str(chat_id))
+    # اگر ستون نبود / null → روشن
+    return True if val is None else bool(val)
+
+
 async def set_guide_settings(chat_id, enabled=None, interval=None, category=None):
     g = await get_group(chat_id)
     if not g:
@@ -97,3 +110,18 @@ async def get_groups_for_guide():
 
 async def count_groups() -> int:
     return int(await fetchval("SELECT COUNT(*) FROM groups") or 0)
+
+
+async def get_user_groups(user_id: int):
+    """گروه‌هایی که کاربر در آن‌ها دیده شده + تنظیمات گروه."""
+    rows = await fetch(
+        """
+        SELECT g.*
+        FROM groups g
+        INNER JOIN group_users gu ON gu.chat_id = g.chat_id
+        WHERE gu.user_id = $1
+        ORDER BY gu.last_seen DESC
+        """,
+        int(user_id),
+    )
+    return [_d(r) for r in rows]
