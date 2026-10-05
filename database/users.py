@@ -289,33 +289,48 @@ async def reset_meow_points():
         pass
 
 
-async def increment_daily_meow(user_id: int, points_earned: int, day_date: str):
+async def increment_daily_meow(user_id: int, points_earned: int, day_date):
+    """day_date: str YYYY-MM-DD یا datetime.date"""
+    from datetime import date, datetime
+    if isinstance(day_date, str):
+        d = date.fromisoformat(day_date[:10])
+    elif isinstance(day_date, datetime):
+        d = day_date.date()
+    else:
+        d = day_date
     await execute(
         """
         INSERT INTO daily_meow_stats (user_id, day_date, meow_count, points_earned)
-        VALUES ($1, $2::date, 1, $3)
+        VALUES ($1, $2, 1, $3)
         ON CONFLICT (user_id, day_date) DO UPDATE SET
             meow_count = daily_meow_stats.meow_count + 1,
             points_earned = daily_meow_stats.points_earned + $3
         """,
-        int(user_id), day_date, int(points_earned),
+        int(user_id), d, int(points_earned),
     )
 
 
-async def get_top_daily_meowers(day_date: str, limit: int = 10):
+async def get_top_daily_meowers(day_date, limit: int = 10):
+    from datetime import date, datetime
+    if isinstance(day_date, str):
+        d = date.fromisoformat(day_date[:10])
+    elif isinstance(day_date, datetime):
+        d = day_date.date()
+    else:
+        d = day_date
     rows = await fetch(
         """
         SELECT d.user_id, d.meow_count, d.points_earned,
                u.first_name, u.username
         FROM daily_meow_stats d
         JOIN users u ON u.user_id = d.user_id
-        WHERE d.day_date = $1::date
+        WHERE d.day_date = $1
         ORDER BY d.points_earned DESC, d.meow_count DESC
         LIMIT $2
         """,
-        day_date, int(limit),
+        d, int(limit),
     )
-    return [_row_to_dict(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 async def get_dashboard_stats():
