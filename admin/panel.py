@@ -355,19 +355,12 @@ async def handle_owner_callback(bot, callback, data: str):
 
         # ========== ADMINS ==========
         if action == "admins":
-            admins = await list_admins()
-            lines = ["🛡 **ADMINS**\n━━━━━━━━━━━━━━"]
-            for a in admins or []:
-                st = "🟢" if a.get("enabled") else "🔴"
-                lines.append(
-                    f"{st} `{a.get('user_id')}` — **{a.get('role')}**\n"
-                    f"   {a.get('note') or ''}"
-                )
-            if not admins:
-                lines.append("فقط Owner در سیستم است.")
-            await _edit(msg, "\n".join(lines), admins_kb())
+            from admin.perms_mgmt import admins_list_text
+            text, kb = await admins_list_text()
+            await _edit(msg, text, kb)
             return
 
+        
         if action == "admin_add":
             _pending[user_id] = {"action": "admin_add"}
             await _edit(
