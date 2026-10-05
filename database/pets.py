@@ -24,7 +24,9 @@ async def create_pet(user_id: int, pet_name: str = "", awaiting_name: bool = Tru
             user_id, pet_name, level, xp, relationship, hunger, energy, mood, health,
             awaiting_name
         ) VALUES ($1, $2, 1, 0, 50, 80, 80, 70, 100, $3)
-        ON CONFLICT (user_id) DO NOTHING
+        ON CONFLICT (user_id) DO UPDATE SET
+            awaiting_name = EXCLUDED.awaiting_name
+            WHERE pets.pet_name IS NULL OR pets.pet_name = '' OR pets.awaiting_name = TRUE
         """,
         int(user_id), pet_name or "", bool(awaiting_name),
     )
