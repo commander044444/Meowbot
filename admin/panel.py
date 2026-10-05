@@ -1121,14 +1121,29 @@ async def handle_owner_text(bot, message, user_id: int, text: str) -> bool:
             if not parts or not parts[0]:
                 await message.reply("❌ `CHAT_ID | invite_link | title`", components=back_nav())
                 return True
-            cid = parts[0]
-            invite = parts[1] if len(parts) > 1 else ""
-            title = parts[2] if len(parts) > 2 else "گروه میو"
+            cid = parts[0].strip()
+            invite = parts[1].strip() if len(parts) > 1 else ""
+            title = parts[2].strip() if len(parts) > 2 else "گروه میو"
             from database.settings import set_global_meow_group
-            await set_global_meow_group(cid, invite, title)
-            await log_action(user_id, "set_global_group", cid, {"invite": invite, "title": title})
+            try:
+                await set_global_meow_group(cid, invite, title)
+            except Exception as e:
+                await message.reply(f"❌ ذخیره تنظیمات: `{e}`", components=back_nav())
+                _pending.pop(user_id, None)
+                return True
+            try:
+                await log_action(
+                    user_id,
+                    "set_global_group",
+                    str(cid),
+                    {"invite": invite, "title": title},
+                )
+            except Exception:
+                pass
             await message.reply(
-                f"✅ گروه جهانی تنظیم شد.\n`{cid}`\n{title}\n{invite or 'بدون لینک'}",
+                "✅ گروه جهانی تنظیم شد.\n`{}`\n{}\n{}".format(
+                    cid, title, invite or "بدون لینک"
+                ),
                 components=nav(),
             )
             _pending.pop(user_id, None)
