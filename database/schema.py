@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS groups (
     username        TEXT DEFAULT '',
     interaction_on  BOOLEAN DEFAULT TRUE,
     guide_enabled   BOOLEAN DEFAULT TRUE,
-    guide_interval  INTEGER DEFAULT 3600,
+    guide_interval  INTEGER DEFAULT 9000,
+    meow_enabled    BOOLEAN DEFAULT TRUE,
     guide_last_sent DOUBLE PRECISION DEFAULT 0,
     guide_category  TEXT DEFAULT 'all',
     created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -340,4 +341,14 @@ async def init_schema():
             """,
             OWNER_ID,
         )
+    # Safe migrations for existing DBs
+    try:
+        await conn.execute(
+            "ALTER TABLE groups ADD COLUMN IF NOT EXISTS meow_enabled BOOLEAN DEFAULT TRUE"
+        )
+        await conn.execute(
+            "ALTER TABLE groups ALTER COLUMN guide_interval SET DEFAULT 9000"
+        )
+    except Exception as e:
+        logger.warning(f"groups migration: {e}")
     logger.info("✅ Database schema initialized")
