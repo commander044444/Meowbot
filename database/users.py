@@ -72,6 +72,7 @@ async def update_user(user_id: int, **fields):
 
 
 async def add_meow_points(user_id: int, amount: int = 1, chat_id=None):
+    """امتیاز فصل سراسری + در صورت وجود chat_id امتیاز گروهی."""
     await execute(
         """
         UPDATE users SET
@@ -82,6 +83,12 @@ async def add_meow_points(user_id: int, amount: int = 1, chat_id=None):
         """,
         int(user_id), int(amount),
     )
+    if chat_id is not None:
+        try:
+            from database.group_stats import add_group_points
+            await add_group_points(user_id, chat_id, amount)
+        except Exception:
+            pass
 
 
 async def get_meow_points(user_id: int, chat_id=None) -> int:
@@ -275,6 +282,11 @@ async def reset_meow_points():
     Does NOT touch coins, pets, inventory, achievements, permanent level/xp.
     """
     await execute("UPDATE users SET meow_points = 0, updated_at = NOW()")
+    try:
+        from database.group_stats import reset_group_season_points
+        await reset_group_season_points()
+    except Exception:
+        pass
 
 
 async def increment_daily_meow(user_id: int, points_earned: int, day_date: str):
