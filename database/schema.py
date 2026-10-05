@@ -361,6 +361,43 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+
+-- ========================================
+-- Bans
+-- ========================================
+CREATE TABLE IF NOT EXISTS bans (
+    id              SERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL,
+    tracking_code   TEXT UNIQUE NOT NULL,
+    reason          TEXT DEFAULT '',
+    description     TEXT DEFAULT '',
+    duration_days   INTEGER DEFAULT NULL,
+    is_permanent    BOOLEAN DEFAULT FALSE,
+    banned_by       BIGINT NOT NULL,
+    starts_at       TIMESTAMPTZ DEFAULT NOW(),
+    ends_at         TIMESTAMPTZ DEFAULT NULL,
+    active          BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bans_user_active ON bans (user_id, active);
+
+-- ========================================
+-- Support Tickets
+-- ========================================
+CREATE TABLE IF NOT EXISTS tickets (
+    id              SERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL,
+    tracking_code   TEXT DEFAULT '',
+    subject         TEXT DEFAULT '',
+    body            TEXT NOT NULL,
+    status          TEXT DEFAULT 'open',
+    admin_reply     TEXT DEFAULT '',
+    replied_by      BIGINT DEFAULT NULL,
+    replied_at      TIMESTAMPTZ DEFAULT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets (user_id);
 """
 
 
@@ -430,4 +467,37 @@ async def init_schema():
         )
     except Exception as e:
         logger.warning(f"last_game_reward migration: {e}")
+    try:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bans (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                tracking_code TEXT UNIQUE NOT NULL,
+                reason TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                duration_days INTEGER DEFAULT NULL,
+                is_permanent BOOLEAN DEFAULT FALSE,
+                banned_by BIGINT NOT NULL,
+                starts_at TIMESTAMPTZ DEFAULT NOW(),
+                ends_at TIMESTAMPTZ DEFAULT NULL,
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS tickets (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                tracking_code TEXT DEFAULT '',
+                subject TEXT DEFAULT '',
+                body TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                admin_reply TEXT DEFAULT '',
+                replied_by BIGINT DEFAULT NULL,
+                replied_at TIMESTAMPTZ DEFAULT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+    except Exception as e:
+        logger.warning(f"bans/tickets migration: {e}")
     logger.info("✅ Database schema initialized")
