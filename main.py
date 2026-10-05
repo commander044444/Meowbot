@@ -215,14 +215,32 @@ async def on_message(message: Message):
 
 
         # ---- پنل ادمین / مالک ----
-        if text in ("/admin", "admin", "پنل ادمین", "/panel", "پنل"):
-            from database.admins import is_admin, is_owner
-            if await is_owner(user_id) or await is_admin(user_id):
-                from admin.panel import show_owner_panel
-                await show_owner_panel(message)
+        if text in ("/admin", "admin", "پنل ادمین", "/panel", "پنل", "/mod"):
+            try:
+                from database.admins import is_admin, is_owner, get_admin
+                owner_ok = await is_owner(user_id)
+                admin_ok = await is_admin(user_id)
+                if owner_ok or admin_ok:
+                    from admin.panel import show_owner_panel
+                    await show_owner_panel(message)
+                    return
+                # راهنما برای دیباگ
+                row = await get_admin(user_id)
+                if row and not row.get("enabled", True):
+                    await message.reply("⛔ اکانت ادمین شما **غیرفعال** است.")
+                else:
+                    await message.reply(
+                        "⛔ شما ادمین نیستید.\n"
+                        f"آیدی شما: `{user_id}`\n"
+                        "Owner باید با پنل شما را اضافه کند."
+                    )
                 return
-            await message.reply("⛔ فقط ادمین / مالک.")
-            return
+            except Exception as e:
+                logger.error(f"/admin error: {e}")
+                import traceback as _tb
+                _tb.print_exc()
+                await message.reply(f"⚠️ خطا در پنل ادمین:\n`{type(e).__name__}: {e}`")
+                return
 
         # ---- Owner Panel ----
         if text in ("/owner", "owner", "پنل مالک", "👑") and await is_owner(user_id):
@@ -807,11 +825,12 @@ async def on_callback(callback: CallbackQuery):
                 await bot.send_message(user_id, text, components=kb)
             return
 
-        # Owner panel
+        # Owner / Admin panel
         if data.startswith("owner:"):
-            if not await is_owner(user_id):
+            from database.admins import is_admin as _ia, is_owner as _io
+            if not (await _io(user_id) or await _ia(user_id)):
                 try:
-                    await callback.answer("⛔ فقط Owner", show_alert=True)
+                    await callback.answer("⛔ فقط ادمین/مالک", show_alert=True)
                 except Exception:
                     pass
                 return
