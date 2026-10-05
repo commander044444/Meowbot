@@ -25,13 +25,21 @@ async def get_inv_item(user_id: int, item_id: str):
 def _meta(row) -> dict:
     if not row:
         return {}
-    m = row.get("meta")
+    m = row.get("meta") if isinstance(row, dict) else None
+    if m is None:
+        return {}
+    if isinstance(m, dict):
+        return m
     if isinstance(m, str):
         try:
-            return json.loads(m)
+            parsed = json.loads(m)
+            return parsed if isinstance(parsed, dict) else {}
         except Exception:
             return {}
-    return dict(m or {})
+    try:
+        return dict(m)
+    except Exception:
+        return {}
 
 
 async def add_item(user_id: int, item_id: str, item_type: str, quantity: int = 1, meta: dict = None):
