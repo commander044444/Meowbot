@@ -816,9 +816,12 @@ async def handle_owner_callback(bot, callback, data: str):
 
 
         if action == "um_list":
-            from admin.users_mgmt import users_list_page
-            text, kb = await users_list_page(0)
-            await _edit(msg, text, kb)
+            try:
+                from admin.users_mgmt import users_list_page
+                text, kb = await users_list_page(0)
+                await _edit(msg, text, kb)
+            except Exception as e:
+                await _edit(msg, f"❌ لیست کاربران:\n`{e}`", nav())
             return
 
         if action == "tickets":
