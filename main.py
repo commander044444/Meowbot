@@ -146,6 +146,16 @@ async def on_message(message: Message):
             await show_owner_panel(message)
             return
 
+        # ---- تنظیمات گروه (ادمین گروه در PV) ----
+        if private and text in (
+            "تنظیم گروه", "تنظیمات گروه", "/groupsettings", "/group",
+            "groupsettings", "تنظیمات ربات",
+        ):
+            from core.group_settings import show_group_list
+            txt, kb = await show_group_list(int(user_id))
+            await message.reply(txt, components=kb)
+            return
+
         # ---- Owner pending text (broadcast, add admin, economy, ...) ----
         if await is_owner(user_id):
             from admin.panel import handle_owner_text
@@ -229,8 +239,20 @@ async def on_message(message: Message):
         if is_meow(text):
             if not private and not is_allowed_group(chat_id, chat_username):
                 return
+            # در گروه: اگر ادمین گروه میو را خاموش کرده، جواب نده
+            if not private and chat_id is not None:
+                try:
+                    from database.groups import get_meow_enabled
+                    if not await get_meow_enabled(chat_id):
+                        return
+                except Exception:
+                    pass
             ok, msg, pts = await register_meow(int(user_id), first_name, username, chat_id)
-            await message.reply(msg, components=main_menu_kb())
+            # در گروه کیبورد اصلی شلوغ است — بدون منو جواب بده
+            if private:
+                await message.reply(msg, components=main_menu_kb())
+            else:
+                await message.reply(msg)
             return
 
         # ---- Text shortcuts (still open glass menu) ----
@@ -355,6 +377,17 @@ async def on_callback(callback: CallbackQuery):
         first_name = getattr(user, "first_name", None) or ""
         username = getattr(user, "username", None) or ""
         msg = callback.message
+
+        # Group settings (group admins)
+        if data.startswith("gset:"):
+            from core.group_settings import handle_gset_callback
+            text, kb = await handle_gset_callback(bot, int(user_id), data)
+            await _edit_or_reply(msg, text, kb)
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            return
 
         # Owner panel
         if data.startswith("owner:"):
