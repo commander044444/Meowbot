@@ -32,13 +32,31 @@ def back_users():
 
 
 async def users_list_page(page: int = 0, per_page: int = 8):
-    total = await count_users()
-    offset = page * per_page
-    rows = await fetch(
-        "SELECT user_id, first_name, username, meow_coins, meow_points "
-        "FROM users ORDER BY user_id DESC LIMIT $1 OFFSET $2",
-        per_page, offset,
-    )
+    try:
+        total = int(await count_users() or 0)
+    except Exception as e:
+        return f"❌ خطا در شمارش کاربران: `{e}`", back_users()
+
+    offset = max(0, int(page)) * per_page
+    try:
+        rows = await fetch(
+            "SELECT user_id, first_name, username, meow_coins, meow_points "
+            "FROM users ORDER BY user_id DESC LIMIT $1 OFFSET $2",
+            per_page, offset,
+        )
+    except Exception as e:
+        return f"❌ خطا در خواندن کاربران: `{e}`", back_users()
+
+    # بن‌های فعال یکجا
+    banned_ids = set()
+    try:
+        brows = await fetch(
+            "SELECT user_id FROM bans WHERE active = TRUE"
+        )
+        banned_ids = {int(b["user_id"]) for b in (brows or [])}
+    except Exception:
+        banned_ids = set()
+
     lines = [
         f"👥 **لیست کاربران** (`{total}`)",
         "━━━━━━━━━━━━━━",
@@ -46,9 +64,15 @@ async def users_list_page(page: int = 0, per_page: int = 8):
     ]
     btn_rows = []
     for r in rows or []:
-        name = (r["first_name"] or str(r["user_id"]))[:16]
-        ban = "🚫" if await is_banned(r["user_id"]) else ""
-        btn_rows.append([(f"{ban}{name} `{r['user_id']}`", f"um:user:{r['user_id']}")])
+        uid = int(r["user_id"])
+        name = (r["first_name"] or str(uid))[:14]
+        mark = "🚫" if uid in banned_ids else "👤"
+        # بدون بک‌تیک در متن دکمه (سازگاری Bale)
+        btn_rows.append([(f"{mark} {name} | {uid}", f"um:user:{uid}")])
+
+    if not rows:
+        lines.append("هنوز کاربری ثبت نشده.")
+
     nav = []
     if page > 0:
         nav.append(("◀️ قبل", f"um:list:{page-1}"))
