@@ -118,3 +118,12 @@ async def update_admin_role(user_id: int, role: str):
 async def list_admins():
     rows = await fetch("SELECT * FROM admins ORDER BY role, user_id")
     return [_d(r) for r in rows]
+
+
+async def is_admin(user_id: int) -> bool:
+    """Owner یا ادمین فعال."""
+    from config import OWNER_ID
+    if int(user_id) == int(OWNER_ID):
+        return True
+    a = await get_admin(user_id)
+    return bool(a and a.get("enabled"))
