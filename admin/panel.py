@@ -610,25 +610,12 @@ async def handle_owner_callback(bot, callback, data: str):
 
         # ========== EVENTS ==========
         if action == "events":
-            events = await get_active_events()
-            lines = ["🎉 **EVENTS**\n━━━━━━━━━━━━━━"]
-            if not events:
-                lines.append("ایونت فعالی نیست.")
-            for e in events:
-                lines.append(
-                    f"• {e.get('name')}\n"
-                    f"  XP×{e.get('bonus_xp')} Coin×{e.get('bonus_coin')}\n"
-                    f"  تا `{e.get('end_at')}`"
-                )
-            lines.append(
-                "\n📌 ساخت ایونت:\n"
-                "در چت بفرست:\n"
-                "`event NAME | DAYS | XP_MULT | COIN_MULT`"
-            )
-            # برای ساخت ایونت از دکمه استفاده شود — pending روی view ست نمی‌شود
-            await _edit(msg, "\n".join(lines), _kb([[("➕ ساخت ایونت", "owner:event_new")], [("🔙 منوی Owner", "owner:home")]]))
+            from admin.events_mgmt import events_home
+            text, kb = await events_home()
+            await _edit(msg, text, kb)
             return
 
+        
         if action == "event_new":
             _pending[user_id] = {"action": "event_create"}
             await _edit(
