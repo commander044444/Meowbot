@@ -52,19 +52,19 @@ async def give_reward(user_id: int, coins: int = 0, note: str = ""):
             f"⏳ جایزه بعدی تا `{fmt_cd(rem)}` دیگر\n"
             f"(هر ۳ ساعت یک‌بار سکه می‌گیری)"
         )
-    if coins > 0:
+    event_note = ""
+    try:
+        from database.events import apply_coin_bonus
+        coins, _m, event_note = await apply_coin_bonus(int(coins or 0))
+    except Exception:
+        pass
+    if coins:
         await add_meow_coins(user_id, coins)
     try:
         await update_user(user_id, last_game_reward=time.time())
-    except Exception:
-        # اگر ستون نبود از pool مستقیم
+    except Exception as e:
         try:
             from database.pool import execute
-            await execute(
-                "UPDATE users SET updated_at = NOW() WHERE user_id = $1",
-                int(user_id),
-            )
-            # store in a simple key if no column - use last_daily style via raw
             await execute(
                 """
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_game_reward DOUBLE PRECISION DEFAULT 0
@@ -74,9 +74,14 @@ async def give_reward(user_id: int, coins: int = 0, note: str = ""):
                 "UPDATE users SET last_game_reward = $2 WHERE user_id = $1",
                 int(user_id), time.time(),
             )
-        except Exception as e:
-            print(f"give_reward meta: {e}")
-    return f"🎁 جایزه: 🪙 +{coins}" + (f"\n{note}" if note else "")
+        except Exception as e2:
+            print(f"give_reward meta: {e2}")
+    msg = f"🎁 +{coins}🪙"
+    if event_note:
+        msg += f" {event_note}"
+    if note:
+        msg += f"\n{note}"
+    return msg
 
 
 async def start_guess(user_id):
