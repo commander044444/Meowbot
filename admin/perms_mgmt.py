@@ -118,7 +118,7 @@ async def admins_list_text():
         print(f"list removed: {e}")
     if not rows:
         lines.append("ادمینی ثبت نشده.")
-    rows.append([("🎖️ Role Management", "ap:roles")])
+    rows.append([("📜 لاگ ادمین‌ها", "ap:alog:0:0"), ("🎖️ Role Management", "ap:roles")])
     rows.append([("➕ افزودن ادمین", "owner:admin_add")])
     rows.append([("🔙 منوی Owner", "owner:home")])
     return "\n".join(lines), _kb(rows)
@@ -164,6 +164,7 @@ async def admin_perms_card(target_id: int):
         ])
         rows.append([("🎖️ Change Role", f"ap:rolemenu:{target_id}")])
         rows.append([("⚠️ اخطار", f"ap:warnask:{target_id}"), ("📜 اخطارها", f"ap:warnlist:{target_id}")])
+        rows.append([("📜 لاگ این ادمین", f"ap:alog:{target_id}:0")])
         rows.append([("📜 Role History", f"ap:history:{target_id}")])
         rows.append([("🗑 Remove Admin", f"ap:rmask:{target_id}")])
     else:
@@ -346,6 +347,13 @@ async def handle_ap_callback(data: str, actor_id: int, bot=None):
 
     if cmd == "list":
         return await admins_list_text()
+    if cmd == "alog":
+        # ap:alog:ACTOR:PAGE  — actor 0 = همه
+        aid = int(parts[2]) if len(parts) > 2 else 0
+        page = int(parts[3]) if len(parts) > 3 else 0
+        from admin.admin_logs_ui import build_admin_logs_text
+        return await build_admin_logs_text(None if aid == 0 else aid, page=page)
+
     if cmd == "noop":
         return "قفل است.", _kb([[("🔙", "ap:list")]])
     if cmd == "view" and len(parts) > 2:
