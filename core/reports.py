@@ -159,6 +159,14 @@ async def admin_resolve(report_id: int, resolver_id: int, bot=None):
     if not r:
         return "❌ پیدا نشد.", _kb([[("🔙", "report:admin_list:open")]])
     await resolve_report(report_id, resolver_id)
+    try:
+        from database.admin_system import record_admin_activity
+        await record_admin_activity(
+            resolver_id, "report_resolve", target=str(report_id),
+            unique_key=f"report_resolve:{report_id}",
+        )
+    except Exception as e:
+        print(f"activity report: {e}")
     # notify user
     if bot:
         try:
