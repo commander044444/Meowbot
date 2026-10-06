@@ -348,6 +348,10 @@ async def on_message(message: Message):
                 if has_ot_pending(int(user_id)):
                     if await handle_ot_text(bot, message, int(user_id), text):
                         return
+                from admin.perms_mgmt import handle_ap_text, has_ap_pending
+                if has_ap_pending(int(user_id)):
+                    if await handle_ap_text(message, int(user_id), text):
+                        return
             from admin.users_mgmt import handle_um_text, has_um_pending
             if has_um_pending(int(user_id)):
                 if await handle_um_text(bot, message, int(user_id), text):
