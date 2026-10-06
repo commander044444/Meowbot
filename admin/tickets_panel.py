@@ -25,7 +25,13 @@ def _kb(rows):
     return kb
 
 
-async def tickets_home():
+async def tickets_home(back_cb: str = "adm:home"):
+    """لیست تیکت‌ها. back_cb برای بازگشت (adm:home یا owner:home)."""
+    global _tickets_back
+    try:
+        _tickets_back = back_cb or "adm:home"
+    except Exception:
+        pass
     n = await count_open_tickets()
     text = (
         f"🎫 **تیکت‌های پشتیبانی**\n"
@@ -35,12 +41,15 @@ async def tickets_home():
     )
     tickets = await list_tickets("open", 20)
     rows = []
-    for t in tickets or []:
-        preview = (t.get("body") or "")[:28].replace("\n", " ")
-        rows.append([(f"🟢 #{t['id']} | `{t['user_id']}` {preview}", f"tk:view:{t['id']}")])
+    for tk in tickets or []:
+        preview = (tk.get("body") or "")[:28].replace("\n", " ")
+        rows.append([(f"🟢 #{tk['id']} | {tk['user_id']} {preview}", f"tk:view:{tk['id']}")])
     rows.append([("📋 همه", "tk:list:all"), ("🟢 بازها", "tk:list:open")])
-    rows.append([("🔙 منوی Owner", "owner:home")])
+    b = back_cb or "adm:home"
+    label = "🔙 داشبورد ادمین" if str(b).startswith("adm:") else "🔙 منوی Owner"
+    rows.append([(label, b)])
     return text, _kb(rows)
+
 
 
 async def view_ticket(ticket_id: int):
