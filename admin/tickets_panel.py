@@ -87,8 +87,20 @@ async def handle_tk_callback(bot, data: str, admin_id: int):
     if cmd == "view" and len(parts) > 2:
         return await view_ticket(int(parts[2]))
     if cmd == "close" and len(parts) > 2:
-        await close_ticket(int(parts[2]))
-        await log_action(admin_id, "ticket_close", parts[2])
+        tid = int(parts[2])
+        trow = await get_ticket(tid)
+        await close_ticket(tid)
+        await log_action(admin_id, "ticket_close", str(tid))
+        try:
+            from database.admin_system import record_admin_activity
+            await record_admin_activity(
+                admin_id, "ticket_close",
+                target=str(tid),
+                unique_key=f"ticket_close:{tid}",
+                metadata={"user_id": (trow or {}).get("user_id")},
+            )
+        except Exception as e:
+            print(f"activity ticket_close: {e}")
         return await tickets_home()
     if cmd == "reply" and len(parts) > 2:
         _pending[admin_id] = {"action": "reply", "ticket_id": int(parts[2])}
@@ -108,6 +120,16 @@ async def handle_tk_text(bot, message, admin_id: int, text: str) -> bool:
         tid = int(p["ticket_id"])
         t = await reply_ticket(tid, admin_id, text)
         await log_action(admin_id, "ticket_reply", str(tid))
+        try:
+            from database.admin_system import record_admin_activity
+            await record_admin_activity(
+                admin_id, "ticket_close",
+                target=str(tid),
+                unique_key=f"ticket_reply:{tid}:{hash(text) % 10**8}",
+                metadata={"reply": True},
+            )
+        except Exception as e:
+            print(f"activity ticket_reply: {e}")
         try:
             await bot.send_message(
                 int(t["user_id"]),
