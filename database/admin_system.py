@@ -209,17 +209,24 @@ async def seed_builtin_tasks():
          "admin_msg", 10, 100, 200, "users.edit", "permanent", True),
     ]
     for b in builtins:
+        # ticket_handle پیش‌فرض روشن — بقیه Owner فعال می‌کند
+        default_on = b[0] in ("ticket_handle",)
         await execute(
             """
             INSERT INTO admin_tasks (
                 task_key, name, description, category, activity_type,
                 target, xp_reward, meow_reward, required_permission,
                 repeat_type, enabled, is_builtin
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,FALSE,$11)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             ON CONFLICT (task_key) DO NOTHING
             """,
-            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10],
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9],
+            default_on, b[10],
         )
+    # اگر از قبل با enabled=false ساخته شده، ticket_handle را روشن کن
+    await execute(
+        "UPDATE admin_tasks SET enabled = TRUE WHERE task_key = 'ticket_handle'"
+    )
 
 
 # ---------- Profile ----------
