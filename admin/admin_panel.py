@@ -10,6 +10,7 @@ from database.admin_system import (
     ensure_admin_profile, get_admin_profile, list_admin_task_progress,
     list_notifications, mark_notifications_read, admin_leaderboard,
     recent_admin_activity, list_role_defs, ensure_admin_system_schema,
+    get_role_history,
 )
 from database.tickets import count_open_tickets, list_tickets
 from database.reports import count_open_reports
@@ -283,7 +284,18 @@ async def view_profile(uid: int):
         f"فعالیت: `{prof.get('activity_count')}`",
         f"عضویت ادمین پروفایل: `{prof.get('joined_at')}`",
         f"آخرین فعالیت: `{prof.get('last_activity') or '—'}`",
+        f"Status: `{(prof or {}).get('status') or 'active'}`",
+        "",
+        "📜 Role History:",
     ]
+    try:
+        hist = await get_role_history(uid, 8)
+        if not hist:
+            lines.append("—")
+        for h in hist:
+            lines.append(f"• {h.get('old_role')} → {h.get('new_role')} (`{h.get('change_type')}`)")
+    except Exception:
+        lines.append("—")
     return "\n".join(lines), _kb([[("🔙 داشبورد", "adm:home")]])
 
 
