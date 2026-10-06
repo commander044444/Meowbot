@@ -100,19 +100,54 @@ async def handle_tk_callback(bot, data: str, admin_id: int):
     if cmd == "close" and len(parts) > 2:
         tid = int(parts[2])
         trow = await get_ticket(tid)
+        # اگر قبلاً بسته شده، دوباره XP نده
+        already = (trow or {}).get("status") == "closed"
         await close_ticket(tid)
         await log_action(admin_id, "ticket_close", str(tid))
-        try:
-            from database.admin_system import record_admin_activity
-            await record_admin_activity(
-                admin_id, "ticket_close",
-                target=str(tid),
-                unique_key=f"ticket_close:{tid}",
-                metadata={"user_id": (trow or {}).get("user_id")},
-            )
-        except Exception as e:
-            print(f"activity ticket_close: {e}")
-        return await tickets_home()
+        reward_note = ""
+        if not already:
+            try:
+                from database.admin_system import record_admin_activity, ensure_admin_system_schema
+                try:
+                    await ensure_admin_system_schema()
+                except Exception:
+                    pass
+                # مطمئن شو تسک تیکت روشن است
+                from database.pool import execute as _ex
+                await _ex(
+                    "UPDATE admin_tasks SET enabled = TRUE WHERE task_key = 'ticket_handle'"
+                )
+                result = await record_admin_activity(
+                    admin_id, "ticket_close",
+                    target=str(tid),
+                    unique_key=f"ticket_close:{tid}",
+                    metadata={"user_id": (trow or {}).get("user_id")},
+                )
+                xp = (result or {}).get("xp") or 0
+                meow = (result or {}).get("meow") or 0
+                # progress فعلی تسک
+                try:
+                    from database.admin_system import list_admin_task_progress
+                    items = await list_admin_task_progress(admin_id)
+                    for it in items or []:
+                        if it.get("task_key") == "ticket_handle" or it.get("activity_type") == "ticket_close":
+                            prog = it.get("progress") or 0
+                            target = it.get("target") or 1
+                            reward_note = f"\n\n📋 تسک تیکت: `{prog}/{target}`"
+                            if it.get("completed"):
+                                reward_note += " ✅ تکمیل شد!"
+                            break
+                except Exception:
+                    pass
+                if xp or meow:
+                    reward_note += f"\n🎁 +{xp} Admin XP | +{meow}🪙"
+            except Exception as e:
+                print(f"activity ticket_close: {e}")
+                reward_note = f"\n⚠️ ثبت تسک: `{e}`"
+        else:
+            reward_note = "\n_(قبلاً بسته شده بود — امتیاز تکراری نیست)_"
+        home_text, home_kb = await tickets_home()
+        return f"✅ تیکت `#{tid}` بسته/حل شد.{reward_note}\n\n{home_text}", home_kb
     if cmd == "reply" and len(parts) > 2:
         _pending[admin_id] = {"action": "reply", "ticket_id": int(parts[2])}
         return "متن پاسخ به کاربر را بفرست:\nلغو: `لغو`", _kb([[("❌ لغو", "tk:home")]])
