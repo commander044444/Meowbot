@@ -165,6 +165,16 @@ async def _migrate_role_extras():
         )
         """,
         "CREATE INDEX IF NOT EXISTS idx_admin_role_hist ON admin_role_history (admin_id, created_at DESC)",
+        "ALTER TABLE admin_profiles ADD COLUMN IF NOT EXISTS warning_count INTEGER DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS admin_warnings (
+            id SERIAL PRIMARY KEY,
+            admin_id BIGINT NOT NULL,
+            warning_number INTEGER NOT NULL,
+            reason TEXT DEFAULT '',
+            issued_by BIGINT DEFAULT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_admin_warnings ON admin_warnings (admin_id, created_at DESC)",
     ]
     for sql in alters:
         try:
@@ -1040,3 +1050,141 @@ async def restore_admin(
         f"Role: {role_key}",
     )
     return True, "ok"
+
+
+# ---------- Admin Warnings (1..5 → permanent ban) ----------
+MAX_ADMIN_WARNINGS = 5
+
+
+async def get_warning_count(admin_id: int) -> int:
+    await ensure_admin_profile(admin_id)
+    val = await fetchval(
+        "SELECT COALESCE(warning_count, 0) FROM admin_profiles WHERE user_id = $1",
+        int(admin_id),
+    )
+    return int(val or 0)
+
+
+async def list_admin_warnings(admin_id: int, limit: int = 20):
+    rows = await fetch(
+        """
+        SELECT * FROM admin_warnings
+        WHERE admin_id = $1
+        ORDER BY created_at DESC LIMIT $2
+        """,
+        int(admin_id), int(limit),
+    )
+    return [_d(r) for r in rows]
+
+
+async def issue_admin_warning(
+    admin_id: int,
+    issued_by: int,
+    reason: str = "",
+) -> dict:
+    """
+    اخطار ۱ تا ۵.
+    اخطار پنجم → Remove Admin + بن دائم کاربر.
+    """
+    from config import OWNER_ID
+    if int(admin_id) == int(OWNER_ID):
+        return {"ok": False, "error": "نمی‌توان به Owner اخطار داد."}
+
+    await ensure_admin_profile(admin_id)
+    current = await get_warning_count(admin_id)
+    if current >= MAX_ADMIN_WARNINGS:
+        return {
+            "ok": False,
+            "error": "قبلاً ۵ اخطار و بن دائم اعمال شده.",
+            "count": current,
+        }
+
+    new_count = current + 1
+    await execute(
+        """
+        INSERT INTO admin_warnings (admin_id, warning_number, reason, issued_by)
+        VALUES ($1, $2, $3, $4)
+        """,
+        int(admin_id), new_count, (reason or "")[:500], int(issued_by),
+    )
+    await execute(
+        """
+        UPDATE admin_profiles SET
+            warning_count = $2,
+            updated_at = NOW()
+        WHERE user_id = $1
+        """,
+        int(admin_id), new_count,
+    )
+
+    labels = {
+        1: "اخطار اول",
+        2: "اخطار دوم",
+        3: "اخطار سوم",
+        4: "اخطار چهارم",
+        5: "اخطار پنجم — بن دائم",
+    }
+    label = labels.get(new_count, f"اخطار {new_count}")
+
+    banned = False
+    if new_count >= MAX_ADMIN_WARNINGS:
+        # حذف ادمین + بن دائم
+        await soft_remove_admin(
+            admin_id, issued_by,
+            reason=f"۵ اخطار ادمین | {reason or ''}",
+        )
+        try:
+            from database.bans import ban_user
+            await ban_user(
+                admin_id,
+                banned_by=issued_by,
+                reason="۵ اخطار ادمینی",
+                description=reason or "اخطار پنجم — بن دائم ادمین",
+                permanent=True,
+            )
+            banned = True
+        except Exception as e:
+            print(f"warn ban: {e}")
+
+    try:
+        await notify(
+            admin_id,
+            "admin_warning",
+            f"⚠️ {label}",
+            reason or f"اخطار {new_count}/{MAX_ADMIN_WARNINGS}",
+        )
+    except Exception:
+        pass
+
+    # پیام متنی برای ادمین
+    try:
+        from database.logs import log_action
+        await log_action(
+            issued_by, "admin_warning", str(admin_id),
+            {"count": new_count, "reason": reason, "banned": banned},
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "count": new_count,
+        "label": label,
+        "banned": banned,
+        "max": MAX_ADMIN_WARNINGS,
+    }
+
+
+async def clear_admin_warnings(admin_id: int, by_admin: int) -> bool:
+    """پاک کردن اخطارها (فقط Owner) — برای بعد از restore."""
+    await ensure_admin_profile(admin_id)
+    await execute(
+        "UPDATE admin_profiles SET warning_count = 0, updated_at = NOW() WHERE user_id = $1",
+        int(admin_id),
+    )
+    try:
+        from database.logs import log_action
+        await log_action(by_admin, "admin_warn_clear", str(admin_id), {})
+    except Exception:
+        pass
+    return True
