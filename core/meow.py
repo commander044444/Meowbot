@@ -94,6 +94,12 @@ async def register_meow(user_id: int, first_name: str = "", username: str = "", 
         return False, random.choice(msgs), 0
 
     points = 1
+    event_note = ""
+    try:
+        from database.events import apply_xp_bonus
+        points, _mult, event_note = await apply_xp_bonus(points)
+    except Exception:
+        pass
     await add_meow_points(user_id, points, chat_id)
     await set_last_meow(user_id, now, chat_id)
 
@@ -111,6 +117,8 @@ async def register_meow(user_id: int, first_name: str = "", username: str = "", 
     idx = await pick_unseen_index(user_id, "meow_response", len(MEOW_RESPONSES))
     name = first_name or (user.get("first_name") if user else None) or "پیشی"
     msg = MEOW_RESPONSES[idx].format(name=name, gained=points, total=total)
+    if event_note:
+        msg += f"\n{event_note}"
 
     try:
         from database.missions import update_mission_progress
