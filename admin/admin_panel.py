@@ -39,17 +39,39 @@ async def _can(uid: int, perm: str) -> bool:
 
 
 async def show_admin_panel(message):
-    """ورود /admin — فقط برای ادمین/owner."""
-    uid = int(message.author.id)
+    """ورود /admin — فقط Admin Workspace (هرگز Owner Panel)."""
+    author = getattr(message, "author", None) or getattr(message, "from_user", None)
+    uid = int(getattr(author, "id", 0) or 0)
+    if not uid:
+        await message.reply("⚠️ کاربر نامشخص.")
+        return
     try:
         await ensure_admin_system_schema()
     except Exception as e:
-        await message.reply(f"⚠️ schema admin: `{e}`")
-    if not (await is_owner(uid) or await is_admin(uid)):
-        await message.reply("⛔ فقط ادمین‌ها به این بخش دسترسی دارند.")
+        print(f"admin schema: {e}")
+    try:
+        owner_ok = await is_owner(uid)
+        admin_ok = await is_admin(uid)
+    except Exception as e:
+        await message.reply(f"⚠️ بررسی دسترسی: `{e}`")
         return
-    text, kb = await dashboard(uid)
-    await message.reply(text, components=kb)
+    if not (owner_ok or admin_ok):
+        await message.reply(
+            "⛔ فقط ادمین‌ها.\n"
+            f"آیدی شما: `{uid}`\n"
+            "از Owner بخواهید شما را اضافه کند."
+        )
+        return
+    try:
+        text, kb = await dashboard(uid)
+        await message.reply(text, components=kb)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await message.reply(
+            f"⚠️ خطا در داشبورد ادمین:\n`{type(e).__name__}: {e}`"
+        )
+
 
 
 async def dashboard(uid: int):
@@ -66,7 +88,7 @@ async def dashboard(uid: int):
             break
 
     lines = [
-        "👋 **فضای کاری ادمین**",
+        "🛡️ **پنل ادمین (Workspace)** — نسخه مستقل",
         "━━━━━━━━━━━━━━",
         f"👤 {u.get('first_name') or uid}",
         f"🎖️ نقش: **{role_title}**",
@@ -160,13 +182,13 @@ async def handle_admin_callback(bot, callback, data: str, user_id: int):
         if not (await _can(user_id, "tickets.manage") or await _can(user_id, "tickets.view")):
             return "⛔ این بخش برای شما فعال نیست.", await _back_only()
         from admin.tickets_panel import tickets_home
-        return await tickets_home()
+        return await tickets_home(back_cb="adm:home")
 
     if cmd == "users":
         if not await _can(user_id, "users.view"):
             return "⛔ این بخش برای شما فعال نیست.", await _back_only()
         from admin.users_mgmt import users_list_page
-        return await users_list_page(0)
+        return await users_list_page(0, back_cb="adm:home")
 
     if cmd == "reports":
         if not (await _can(user_id, "reports.view") or await _can(user_id, "reports.manage")):
