@@ -76,6 +76,7 @@ def nav():
         [("💬 Msg Admin", "owner:msg_admin"), ("📜 Logs", "owner:logs")],
         [("💾 Backup", "owner:backup"), ("⚙️ Settings", "owner:settings")],
         [("🐛 گزارش‌ها", "owner:reports"), ("🌍 گروه جهانی", "owner:global_group")],
+        [("🎯 تسک ادمین", "owner:admin_tasks"), ("🛡 دسترسی ادمین", "owner:admins")],
         [("🚧 Maintenance", "owner:maint"), ("🔙 بستن", "owner:close")],
     ])
 
@@ -820,6 +821,12 @@ async def handle_owner_callback(bot, callback, data: str):
         if action == "tickets":
             from admin.tickets_panel import tickets_home
             text, kb = await tickets_home()
+            await _edit(msg, text, kb)
+            return
+
+        if action == "admin_tasks":
+            from admin.owner_tasks import tasks_home
+            text, kb = await tasks_home()
             await _edit(msg, text, kb)
             return
 
