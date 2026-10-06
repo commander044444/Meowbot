@@ -11,6 +11,8 @@ from database.admin_system import (
     ensure_admin_profile, get_admin_profile, list_role_defs, get_role_def,
     update_role_def, assign_role_manual, soft_remove_admin, get_role_history,
     set_manual_permission_override, ensure_admin_system_schema, restore_admin,
+    issue_admin_warning, get_warning_count, list_admin_warnings, clear_admin_warnings,
+    MAX_ADMIN_WARNINGS,
 )
 from database.logs import log_action
 from database.users import get_user
@@ -146,6 +148,7 @@ async def admin_perms_card(target_id: int):
         f"⭐ Admin XP: `{prof.get('admin_xp') or 0}`",
         f"✅ تسک: `{prof.get('completed_tasks') or 0}`",
         f"📊 فعالیت: `{prof.get('activity_count') or 0}`",
+        f"⚠️ اخطار: `{prof.get('warning_count') or await get_warning_count(target_id)}/{MAX_ADMIN_WARNINGS}`",
         "━━━━━━━━━━━━━━",
         "دسترسی‌ها (روشن/خاموش):",
     ]
@@ -160,6 +163,7 @@ async def admin_perms_card(target_id: int):
             ("❌ همه خاموش", f"ap:alloff:{target_id}"),
         ])
         rows.append([("🎖️ Change Role", f"ap:rolemenu:{target_id}")])
+        rows.append([("⚠️ اخطار", f"ap:warnask:{target_id}"), ("📜 اخطارها", f"ap:warnlist:{target_id}")])
         rows.append([("📜 Role History", f"ap:history:{target_id}")])
         rows.append([("🗑 Remove Admin", f"ap:rmask:{target_id}")])
     else:
@@ -331,7 +335,7 @@ async def role_edit_card(role_key: str):
     return text, kb
 
 
-async def handle_ap_callback(data: str, actor_id: int):
+async def handle_ap_callback(data: str, actor_id: int, bot=None):
     parts = data.split(":")
     cmd = parts[1] if len(parts) > 1 else "list"
 
@@ -366,6 +370,93 @@ async def handle_ap_callback(data: str, actor_id: int):
             return f"❌ {msg}", _kb([[("🔙", f"ap:view:{tid}")]])
         card, kb = await admin_perms_card(tid)
         return f"✅ Role تغییر کرد (Manual Assignment).\n\n{card}", kb
+
+
+    if cmd == "warnask" and len(parts) > 2:
+        if not await is_owner(actor_id):
+            return "⛔ فقط Owner.", _kb([[("🔙", "ap:list")]])
+        tid = int(parts[2])
+        cnt = await get_warning_count(tid)
+        u = await get_user(tid)
+        name = (u or {}).get("first_name") or str(tid)
+        next_n = min(cnt + 1, MAX_ADMIN_WARNINGS)
+        labels = {
+            1: "اخطار اول",
+            2: "اخطار دوم",
+            3: "اخطار سوم",
+            4: "اخطار چهارم",
+            5: "اخطار پنجم → بن دائم",
+        }
+        if cnt >= MAX_ADMIN_WARNINGS:
+            return (
+                f"این ادمین قبلاً `{cnt}` اخطار دارد.",
+                _kb([[("🔙", f"ap:view:{tid}")]]),
+            )
+        text = (
+            f"⚠️ **صدور اخطار**\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"Admin: {name} (`{tid}`)\n"
+            f"اخطار فعلی: `{cnt}/{MAX_ADMIN_WARNINGS}`\n"
+            f"اخطار بعدی: **{labels.get(next_n, next_n)}**\n\n"
+            f"آیا مطمئنی؟"
+        ).replace("\n", "\n")
+        return text, _kb([
+            [("✅ تأیید اخطار", f"ap:warndo:{tid}"), ("❌ لغو", f"ap:view:{tid}")],
+        ])
+    if cmd == "warndo" and len(parts) > 2:
+        if not await is_owner(actor_id):
+            return "⛔ فقط Owner.", _kb([[("🔙", "ap:list")]])
+        tid = int(parts[2])
+        result = await issue_admin_warning(tid, actor_id, reason="اخطار مدیریتی Owner")
+        if not result.get("ok"):
+            return f"❌ {result.get('error')}", _kb([[("🔙", f"ap:view:{tid}")]])
+        # پیام به ادمین
+        if bot is not None:
+            try:
+                dm = (
+                    f"⚠️ **{result.get('label')}**\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"از طرف مدیریت یک اخطار ادمینی دریافت کردید.\n"
+                    f"تعداد اخطار: `{result.get('count')}/{result.get('max')}`\n"
+                )
+                if result.get("banned"):
+                    dm += "\n🚫 اخطار پنجم: دسترسی ادمین قطع و **بن دائم** شدید."
+                await bot.send_message(tid, dm.replace("\n", "\n"))
+            except Exception as e:
+                print(f"warn dm: {e}")
+        msg = (
+            f"✅ **{result.get('label')}** ثبت شد.\n"
+            f"تعداد: `{result.get('count')}/{result.get('max')}`"
+        )
+        if result.get("banned"):
+            msg += "\n\n🚫 اخطار پنجم → حذف ادمین + بن دائم."
+        msg = msg.replace("\n", "\n")
+        card, kb = await admin_perms_card(tid)
+        return f"{msg}\n\n{card}".replace("\n", "\n"), kb
+    if cmd == "warnlist" and len(parts) > 2:
+        tid = int(parts[2])
+        warns = await list_admin_warnings(tid, 15)
+        cnt = await get_warning_count(tid)
+        lines = [
+            f"📜 **لیست اخطارها** `{tid}`",
+            f"مجموع: `{cnt}/{MAX_ADMIN_WARNINGS}`",
+            "━━━━━━━━━━━━━━",
+        ]
+        if not warns:
+            lines.append("اخطاری ثبت نشده.")
+        for w in warns:
+            lines.append(f"• #{w.get('warning_number')} — {w.get('reason') or '—'}")
+        rows = [[("🔙", f"ap:view:{tid}")]]
+        if cnt > 0 and await is_owner(actor_id):
+            rows.insert(0, [("🧹 پاک کردن اخطارها", f"ap:warnclear:{tid}")])
+        return "\n".join(lines), _kb(rows)
+    if cmd == "warnclear" and len(parts) > 2:
+        if not await is_owner(actor_id):
+            return "⛔ فقط Owner.", _kb([[("🔙", "ap:list")]])
+        tid = int(parts[2])
+        await clear_admin_warnings(tid, actor_id)
+        card, kb = await admin_perms_card(tid)
+        return f"✅ اخطارها پاک شد.\n\n{card}".replace("\n", "\n"), kb
 
     if cmd == "rmask" and len(parts) > 2:
         if not await is_owner(actor_id):
