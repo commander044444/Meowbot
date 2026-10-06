@@ -96,7 +96,12 @@ async def handle_tk_callback(bot, data: str, admin_id: int):
         # keep back
         return "\n".join(lines), _kb(rows)
     if cmd == "view" and len(parts) > 2:
-        return await view_ticket(int(parts[2]))
+        tid = int(parts[2])
+        try:
+            await log_action(admin_id, "ticket_view", str(tid))
+        except Exception:
+            pass
+        return await view_ticket(tid)
     if cmd == "close" and len(parts) > 2:
         tid = int(parts[2])
         trow = await get_ticket(tid)
