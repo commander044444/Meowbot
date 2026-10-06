@@ -10,7 +10,7 @@ from database.admins import (
 from database.admin_system import (
     ensure_admin_profile, get_admin_profile, list_role_defs, get_role_def,
     update_role_def, assign_role_manual, soft_remove_admin, get_role_history,
-    set_manual_permission_override, ensure_admin_system_schema,
+    set_manual_permission_override, ensure_admin_system_schema, restore_admin,
 )
 from database.logs import log_action
 from database.users import get_user
@@ -84,21 +84,38 @@ async def admins_list_text():
         "یک ادمین را انتخاب کن:",
     ]
     rows = []
-    if not admins:
-        lines.append("ادمینی ثبت نشده.")
+    seen = set()
     for a in admins or []:
         uid = int(a["user_id"])
         if uid == int(OWNER_ID):
-            continue  # Owner را در لیست ادمین نشان نده برای حذف تصادفی
-        role = a.get("role") or "ADMIN"
+            continue
+        seen.add(uid)
         en = "🟢" if a.get("enabled", True) else "🔴"
         u = await get_user(uid)
         name = (u or {}).get("first_name") or str(uid)
         prof = await get_admin_profile(uid)
         pr = (prof or {}).get("role_key") or "—"
-        st = (prof or {}).get("status") or "active"
-        mark = "🗑" if st == "removed" else en
-        rows.append([(f"{mark} {name} | {pr}", f"ap:view:{uid}")])
+        rows.append([(f"{en} {name} | {pr}", f"ap:view:{uid}")])
+    # ادمین‌های حذف‌شده (برای Restore)
+    try:
+        from database.pool import fetch as _fetch
+        removed = await _fetch(
+            "SELECT user_id, role_key FROM admin_profiles WHERE status = 'removed' ORDER BY removed_at DESC NULLS LAST LIMIT 30"
+        )
+        if removed:
+            lines.append("")
+            lines.append("🗑 حذف‌شده‌ها (قابل بازگردانی):")
+            for r in removed:
+                uid = int(r["user_id"])
+                if uid in seen or uid == int(OWNER_ID):
+                    continue
+                u = await get_user(uid)
+                name = (u or {}).get("first_name") or str(uid)
+                rows.append([(f"🗑 {name} | {r.get('role_key') or '—'}", f"ap:view:{uid}")])
+    except Exception as e:
+        print(f"list removed: {e}")
+    if not rows:
+        lines.append("ادمینی ثبت نشده.")
     rows.append([("🎖️ Role Management", "ap:roles")])
     rows.append([("➕ افزودن ادمین", "owner:admin_add")])
     rows.append([("🔙 منوی Owner", "owner:home")])
@@ -147,6 +164,8 @@ async def admin_perms_card(target_id: int):
         rows.append([("🗑 Remove Admin", f"ap:rmask:{target_id}")])
     else:
         lines.append("⚠️ این ادمین حذف شده — سابقه حفظ شده است.")
+        lines.append("می‌توانی دوباره بازگردانی‌اش کنی:")
+        rows.append([("♻️ Restore Admin", f"ap:restoreask:{target_id}")])
         rows.append([("📜 Role History", f"ap:history:{target_id}")])
 
     rows.append([("🔙 لیست ادمین", "ap:list"), ("🔙 Owner", "owner:home")])
@@ -366,6 +385,35 @@ async def handle_ap_callback(data: str, actor_id: int):
             f"سابقه Activity حفظ شده است.",
             _kb([[("🔙 لیست", "ap:list")]]),
         )
+
+
+    if cmd == "restoreask" and len(parts) > 2:
+        if not await is_owner(actor_id):
+            return "⛔ فقط Owner.", _kb([[("🔙", "ap:list")]])
+        tid = int(parts[2])
+        u = await get_user(tid)
+        name = (u or {}).get("first_name") or str(tid)
+        roles = await list_role_defs()
+        lines = [
+            "♻️ **بازگردانی Admin**",
+            f"کاربر: {name} (`{tid}`)",
+            "Role اولیه را انتخاب کن:",
+        ]
+        rows = []
+        for r in roles:
+            title = r.get("title") or r["role_key"]
+            rows.append([(title, f"ap:restoredo:{tid}:{r['role_key']}")])
+        rows.append([("❌ لغو", f"ap:view:{tid}")])
+        return "\n".join(lines), _kb(rows)
+    if cmd == "restoredo" and len(parts) > 3:
+        if not await is_owner(actor_id):
+            return "⛔ فقط Owner.", _kb([[("🔙", "ap:list")]])
+        tid, rk = int(parts[2]), parts[3]
+        ok, msg = await restore_admin(tid, actor_id, role_key=rk)
+        if not ok:
+            return f"❌ {msg}", _kb([[("🔙", "ap:list")]])
+        card, kb = await admin_perms_card(tid)
+        return f"✅ ادمین بازگردانی شد.\nاکنون `/admin` کار می‌کند.\n\n{card}", kb
 
     if cmd == "history" and len(parts) > 2:
         tid = int(parts[2])
