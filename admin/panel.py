@@ -820,7 +820,7 @@ async def handle_owner_callback(bot, callback, data: str):
 
         if action == "tickets":
             from admin.tickets_panel import tickets_home
-            text, kb = await tickets_home()
+            text, kb = await tickets_home(back_cb="owner:home")
             await _edit(msg, text, kb)
             return
 
