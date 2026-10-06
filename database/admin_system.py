@@ -980,3 +980,56 @@ async def set_manual_permission_override(admin_id: int, permissions: list):
         """,
         int(admin_id), json.dumps(list(permissions or [])),
     )
+
+
+async def restore_admin(
+    admin_id: int,
+    restored_by: int,
+    role_key: str = "moderator",
+    reason: str = "restored by owner",
+):
+    """
+    بازگرداندن ادمین حذف‌شده:
+    - ردیف admins دوباره ساخته می‌شود
+    - status = active
+    - سابقه Activity/History حفظ می‌شود
+    """
+    from config import OWNER_ID
+    if int(admin_id) == int(OWNER_ID):
+        return False, "Owner نیاز به restore ندارد."
+
+    role = await get_role_def(role_key)
+    if not role:
+        role_key = "moderator"
+
+    ok, msg = await assign_role_manual(
+        admin_id, role_key, restored_by,
+        reason=reason, apply_default_perms=True,
+    )
+    if not ok:
+        return False, msg
+
+    await execute(
+        """
+        UPDATE admin_profiles SET
+            status = 'active',
+            removed_at = NULL,
+            updated_at = NOW()
+        WHERE user_id = $1
+        """,
+        int(admin_id),
+    )
+    await log_role_change(
+        admin_id, "removed", role_key, restored_by, reason, "manual_assignment",
+    )
+    try:
+        from database.logs import log_action
+        await log_action(restored_by, "admin_restore", str(admin_id), {"role": role_key})
+    except Exception:
+        pass
+    await notify(
+        admin_id, "admin_restored",
+        "✅ دسترسی ادمین شما بازگردانده شد",
+        f"Role: {role_key}",
+    )
+    return True, "ok"
