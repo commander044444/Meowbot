@@ -27,11 +27,20 @@ def _kb(rows):
     return kb
 
 
+_um_back = "adm:home"
+
+def set_um_back(cb: str = "adm:home"):
+    global _um_back
+    _um_back = cb or "adm:home"
+
 def back_users():
-    return _kb([[("🔙 لیست کاربران", "um:list:0")], [("🔙 منوی Owner", "owner:home")]])
+    label = "🔙 داشبورد ادمین" if str(_um_back).startswith("adm:") else "🔙 منوی Owner"
+    return _kb([[("🔙 لیست کاربران", "um:list:0")], [(label, _um_back)]])
 
 
-async def users_list_page(page: int = 0, per_page: int = 8):
+async def users_list_page(page: int = 0, per_page: int = 8, back_cb: str = None):
+    if back_cb is not None:
+        set_um_back(back_cb)
     try:
         total = int(await count_users() or 0)
     except Exception as e:
@@ -80,7 +89,8 @@ async def users_list_page(page: int = 0, per_page: int = 8):
         nav.append(("بعد ▶️", f"um:list:{page+1}"))
     if nav:
         btn_rows.append(nav)
-    btn_rows.append([("🔙 منوی Owner", "owner:home")])
+    label = "🔙 داشبورد ادمین" if str(_um_back).startswith("adm:") else "🔙 منوی Owner"
+    btn_rows.append([(label, _um_back)])
     return "\n".join(lines), _kb(btn_rows)
 
 
@@ -135,7 +145,7 @@ async def user_card(target_id: int):
         [("🏋️ Gym", f"um:gym:{target_id}"), ("📜 لاگ", f"um:logs:{target_id}")],
         [("💬 پیام شخصی", f"um:msg:{target_id}")],
         [("🚫 بن", f"um:ban:{target_id}"), ("✅ آنبن", f"um:unban:{target_id}")],
-        [("🔙 لیست", "um:list:0"), ("🔙 Owner", "owner:home")],
+        [("🔙 لیست", "um:list:0"), ("🔙 بازگشت", _um_back)],
     ])
     return text, kb
 
