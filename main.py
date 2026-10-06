@@ -344,6 +344,10 @@ async def on_message(message: Message):
         # ---- Owner/Admin pending text ----
         if await is_owner(user_id) or await is_admin(user_id):
             if await is_owner(user_id):
+                from admin.events_mgmt import handle_ev_text, has_ev_pending
+                if has_ev_pending(int(user_id)):
+                    if await handle_ev_text(message, int(user_id), text):
+                        return
                 from admin.owner_tasks import handle_ot_text, has_ot_pending
                 if has_ot_pending(int(user_id)):
                     if await handle_ot_text(bot, message, int(user_id), text):
@@ -754,6 +758,18 @@ async def on_callback(callback: CallbackQuery):
                 return
             from admin.admin_panel import handle_admin_callback
             text, kb = await handle_admin_callback(bot, callback, data, user_id)
+            await _edit_or_reply(msg, text, kb)
+            return
+
+        if data.startswith("ev:"):
+            if not await is_owner(user_id):
+                try:
+                    await callback.answer("⛔ فقط Owner", show_alert=True)
+                except Exception:
+                    pass
+                return
+            from admin.events_mgmt import handle_ev_callback
+            text, kb = await handle_ev_callback(data, user_id)
             await _edit_or_reply(msg, text, kb)
             return
 
