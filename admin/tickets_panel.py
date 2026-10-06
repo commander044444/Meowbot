@@ -9,7 +9,8 @@ from database.tickets import (
 from database.logs import log_action
 from database.users import get_user
 
-_pending = {}  # admin_id -> {action: reply, ticket_id}
+_pending = {}
+_tickets_back = "adm:home"  # default back target
 
 
 def _kb(rows):
@@ -83,6 +84,7 @@ async def handle_tk_callback(bot, data: str, admin_id: int):
         if not tickets:
             lines.append("خالی")
         rows.append([("🔙", "tk:home")])
+        # keep back
         return "\n".join(lines), _kb(rows)
     if cmd == "view" and len(parts) > 2:
         return await view_ticket(int(parts[2]))
