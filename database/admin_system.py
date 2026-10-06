@@ -136,8 +136,43 @@ async def ensure_admin_system_schema():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(ADMIN_SYSTEM_SQL)
+    await _migrate_role_extras()
     await seed_role_defs()
     await seed_builtin_tasks()
+
+
+
+async def _migrate_role_extras():
+    """ستون‌ها و جداول اضافی Role/Remove — امن."""
+    alters = [
+        "ALTER TABLE admin_role_defs ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
+        "ALTER TABLE admin_role_defs ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT ''",
+        "ALTER TABLE admin_role_defs ADD COLUMN IF NOT EXISTS default_permissions JSONB DEFAULT '[]'",
+        "ALTER TABLE admin_role_defs ADD COLUMN IF NOT EXISTS xp_reward INTEGER DEFAULT 0",
+        "ALTER TABLE admin_profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
+        "ALTER TABLE admin_profiles ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ DEFAULT NULL",
+        "ALTER TABLE admin_profiles ADD COLUMN IF NOT EXISTS manual_permissions JSONB DEFAULT '[]'",
+        """
+        CREATE TABLE IF NOT EXISTS admin_role_history (
+            id              SERIAL PRIMARY KEY,
+            admin_id        BIGINT NOT NULL,
+            old_role        TEXT DEFAULT '',
+            new_role        TEXT NOT NULL,
+            changed_by      BIGINT DEFAULT NULL,
+            reason          TEXT DEFAULT '',
+            change_type     TEXT DEFAULT 'system',
+            created_at      TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_admin_role_hist ON admin_role_history (admin_id, created_at DESC)",
+    ]
+    for sql in alters:
+        try:
+            await execute(sql)
+        except Exception as e:
+            print(f"role migrate: {e}")
+
+
 
 
 async def seed_role_defs():
@@ -249,8 +284,9 @@ async def get_role_def(role_key: str):
 
 async def update_role_def(role_key: str, **fields):
     allowed = {
-        "title", "required_xp", "required_tasks", "required_activity",
-        "reward_meow", "auto_upgrade", "needs_owner_approval", "enabled", "sort_order",
+        "title", "description", "icon", "required_xp", "required_tasks", "required_activity",
+        "reward_meow", "xp_reward", "auto_upgrade", "needs_owner_approval", "enabled",
+        "sort_order", "default_permissions",
     }
     sets, args, i = [], [role_key], 2
     for k, v in fields.items():
@@ -611,9 +647,13 @@ async def apply_role_upgrade(admin_id: int, role_key: str):
     prof = await ensure_admin_profile(admin_id)
     old = (prof or {}).get("role_key")
     await execute(
-        "UPDATE admin_profiles SET role_key = $2, updated_at = NOW() WHERE user_id = $1",
+        "UPDATE admin_profiles SET role_key = $2, status = 'active', updated_at = NOW() WHERE user_id = $1",
         int(admin_id), role_key,
     )
+    try:
+        await log_role_change(admin_id, old or "", role_key, None, "auto", "automatic_promotion")
+    except Exception:
+        pass
     # reward once
     claimed = await fetchval(
         "SELECT 1 FROM admin_role_rewards_claimed WHERE admin_id = $1 AND role_key = $2",
@@ -722,3 +762,221 @@ async def recent_admin_activity(admin_id: int = None, limit: int = 20):
             int(limit),
         )
     return [_d(r) for r in rows]
+
+
+
+# ---------- Role defaults & assignment ----------
+ROLE_DEFAULT_PERMS = {
+    "candidate": [
+        "tickets.view", "reports.view", "leaderboard.view", "tasks.view",
+    ],
+    "moderator": [
+        "tickets.view", "tickets.manage", "reports.view", "reports.manage",
+        "users.view", "users.ban", "groups.view", "leaderboard.view", "tasks.view",
+        "admin_activity.view", "logs.view",
+    ],
+    "admin": [
+        "tickets.view", "tickets.manage", "reports.view", "reports.manage",
+        "users.view", "users.edit", "users.ban", "users.unban",
+        "groups.view", "groups.edit", "economy.view",
+        "broadcast.view", "logs.view", "leaderboard.view", "tasks.view",
+        "admin_activity.view",
+    ],
+    "super_admin": [
+        "tickets.view", "tickets.manage", "reports.view", "reports.manage",
+        "users.view", "users.edit", "users.ban", "users.unban",
+        "groups.view", "groups.edit", "economy.view", "economy.edit",
+        "broadcast.view", "broadcast.send", "logs.view",
+        "leaderboard.view", "tasks.view", "tasks.manage",
+        "admin_activity.view", "admins.view",
+        "settings.manage",
+    ],
+}
+
+
+async def log_role_change(
+    admin_id: int,
+    old_role: str,
+    new_role: str,
+    changed_by: int = None,
+    reason: str = "",
+    change_type: str = "system",
+):
+    await execute(
+        """
+        INSERT INTO admin_role_history (admin_id, old_role, new_role, changed_by, reason, change_type)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        """,
+        int(admin_id), old_role or "", new_role, changed_by, reason or "", change_type,
+    )
+    try:
+        from database.logs import log_action
+        await log_action(
+            changed_by or 0, "role_change", str(admin_id),
+            {"old": old_role, "new": new_role, "type": change_type, "reason": reason},
+        )
+    except Exception:
+        pass
+
+
+async def get_role_history(admin_id: int, limit: int = 20):
+    rows = await fetch(
+        """
+        SELECT * FROM admin_role_history
+        WHERE admin_id = $1
+        ORDER BY created_at DESC LIMIT $2
+        """,
+        int(admin_id), int(limit),
+    )
+    return [_d(r) for r in rows]
+
+
+async def assign_role_manual(
+    admin_id: int,
+    new_role_key: str,
+    changed_by: int,
+    reason: str = "manual assignment",
+    apply_default_perms: bool = True,
+):
+    from config import OWNER_ID
+    if int(admin_id) == int(OWNER_ID):
+        return False, "نمی‌توان Role Owner را تغییر داد."
+
+    role = await get_role_def(new_role_key)
+    if not role:
+        return False, "Role نامعتبر."
+
+    if new_role_key == "super_admin" and int(changed_by) != int(OWNER_ID):
+        return False, "فقط Owner می‌تواند Super Admin بسازد."
+
+    prof = await ensure_admin_profile(admin_id)
+    old = (prof or {}).get("role_key") or "candidate"
+
+    roles = await list_role_defs()
+    order = {r["role_key"]: int(r.get("sort_order") or 0) for r in roles}
+    if order.get(new_role_key, 0) < order.get(old, 0):
+        ctype = "demotion"
+    elif order.get(new_role_key, 0) > order.get(old, 0):
+        ctype = "manual_assignment"
+    else:
+        ctype = "system"
+
+    await execute(
+        """
+        UPDATE admin_profiles SET
+            role_key = $2,
+            status = 'active',
+            removed_at = NULL,
+            updated_at = NOW()
+        WHERE user_id = $1
+        """,
+        int(admin_id), new_role_key,
+    )
+
+    from database.admins import get_admin, update_admin_role, update_admin_permissions, add_admin
+    a = await get_admin(admin_id)
+    sys_role = {
+        "candidate": "MODERATOR",
+        "moderator": "MODERATOR",
+        "admin": "ADMIN",
+        "super_admin": "SUPER_ADMIN",
+    }.get(new_role_key, "ADMIN")
+    if not a:
+        await add_admin(admin_id, role=sys_role, permissions=[], added_by=changed_by)
+    else:
+        try:
+            await update_admin_role(admin_id, sys_role)
+        except Exception:
+            pass
+        # re-enable if was disabled
+        from database.admins import set_admin_enabled
+        try:
+            await set_admin_enabled(admin_id, True)
+        except Exception:
+            pass
+
+    if apply_default_perms:
+        import json as _json
+        defaults = list(ROLE_DEFAULT_PERMS.get(new_role_key) or [])
+        dp = role.get("default_permissions")
+        if isinstance(dp, str):
+            try:
+                dp = _json.loads(dp)
+            except Exception:
+                dp = []
+        if isinstance(dp, list) and dp:
+            defaults = list(dp)
+        manual = []
+        mp = (prof or {}).get("manual_permissions")
+        if isinstance(mp, str):
+            try:
+                mp = _json.loads(mp)
+            except Exception:
+                mp = []
+        if isinstance(mp, list):
+            manual = mp
+        merged = list(dict.fromkeys(list(defaults) + list(manual)))
+        await update_admin_permissions(admin_id, merged)
+
+    await log_role_change(admin_id, old, new_role_key, changed_by, reason, ctype)
+    await notify(
+        admin_id, "role_changed",
+        "🎖️ Role شما تغییر کرد",
+        f"{old} → {new_role_key}",
+    )
+    return True, "ok"
+
+
+async def soft_remove_admin(admin_id: int, removed_by: int, reason: str = ""):
+    from config import OWNER_ID
+    if int(admin_id) == int(OWNER_ID):
+        return False, "نمی‌توان Owner را حذف کرد."
+
+    from database.admins import get_admin, remove_admin
+    a = await get_admin(admin_id)
+    if a:
+        ok = await remove_admin(admin_id)
+        if not ok:
+            return False, "حذف ناموفق."
+
+    await ensure_admin_profile(admin_id)
+    prof = await get_admin_profile(admin_id)
+    old_role = (prof or {}).get("role_key") or ""
+    await execute(
+        """
+        UPDATE admin_profiles SET
+            status = 'removed',
+            removed_at = NOW(),
+            updated_at = NOW()
+        WHERE user_id = $1
+        """,
+        int(admin_id),
+    )
+    await log_role_change(
+        admin_id, old_role, "removed", removed_by,
+        reason or "removed by owner", "demotion",
+    )
+    try:
+        from database.logs import log_action
+        await log_action(removed_by, "admin_remove", str(admin_id), {"reason": reason})
+    except Exception:
+        pass
+    try:
+        await notify(admin_id, "admin_removed", "دسترسی ادمین برداشته شد", reason or "")
+    except Exception:
+        pass
+    return True, "ok"
+
+
+async def set_manual_permission_override(admin_id: int, permissions: list):
+    import json
+    await ensure_admin_profile(admin_id)
+    await execute(
+        """
+        UPDATE admin_profiles SET
+            manual_permissions = $2::jsonb,
+            updated_at = NOW()
+        WHERE user_id = $1
+        """,
+        int(admin_id), json.dumps(list(permissions or [])),
+    )
