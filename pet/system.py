@@ -328,17 +328,25 @@ async def action_feed(user_id):
 
 async def action_play(user_id, kind="ball"):
     pet = await get_pet(user_id)
-    if not pet or pet.get("awaiting_name"):
+    if not pet or not isinstance(pet, dict) or pet.get("awaiting_name"):
         return "❌ اول Pet بساز!", pet_home_kb(False)
     if pet.get("is_sleeping"):
         return "💤 خوابه؛ نمی‌تونه بازی کنه.", pet_home_kb(True)
 
+    now = time.time()
+    cd = PET_PLAY_COOLDOWN - (now - float(pet.get("last_play") or 0))
+    if cd > 0:
+        return f"⏳ بازی بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
+
     item, meta, err = await _need_item(user_id, "toy", "بازی کردن")
     if err:
         return err
+    if not item or not isinstance(item, dict):
+        return "❌ اول از فروشگاه اسباب‌بازی بخر.", pet_home_kb(True)
 
     from database.inventory import consume_use
-    ok, left, _ = await consume_use(user_id, item["item_id"], 1)
+    item_id = item.get("item_id") or ""
+    ok, left, _ = await consume_use(user_id, item_id, 1)
     if not ok:
         return "❌ اسباب‌بازی تموم شده. از فروشگاه بخر.", pet_home_kb(True)
 
@@ -348,13 +356,7 @@ async def action_play(user_id, kind="ball"):
     rel_add = int(effect.get("relationship") or 3)
     mood_add = int(effect.get("mood") or 5)
 
-    now = time.time()
-    cd = PET_PLAY_COOLDOWN - (now - float(pet.get("last_play") or 0))
-    if cd > 0:
-        return f"⏳ بازی بعد از `{fmt_cd(cd)}`", pet_home_kb(True)
-
     energy = clamp(int(pet.get("energy") or 0) + energy_add)
-    # بازی کمی گرسنگی می‌آورد
     hunger = clamp(int(pet.get("hunger") or 80) - 5)
     rel = clamp(int(pet.get("relationship") or 50) + rel_add)
     mood = clamp(int(pet.get("mood") or 70) + mood_add)
@@ -370,12 +372,21 @@ async def action_play(user_id, kind="ball"):
         last_interaction=now,
     )
     name = pet.get("pet_name") or "Pet"
-    msg = random.choice(PLAY_MESSAGES).format(name=name)
-    msg += f"\n🎾 با: {item.get('item_id')}\n🔋 باقی استفاده اسباب‌بازی: `{left}`"
+    msgs = PLAY_MESSAGES.get(str(kind)) or PLAY_MESSAGES.get("ball") or ["🐱 {name} بازی کرد! 🎾"]
+    if isinstance(msgs, str):
+        msgs = [msgs]
+    try:
+        msg = random.choice(list(msgs)).format(name=name)
+    except Exception:
+        msg = f"🐱 {name} بازی کرد! 🎾"
+    msg += f"\n🎾 با: `{item_id}`\n🔋 باقی استفاده اسباب‌بازی: `{left}`"
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
-    return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
+    if isinstance(pet, dict):
+        return msg + "\n\n" + pet_card(pet), pet_home_kb(True)
+    return msg, pet_home_kb(True)
+
 
 
 async def action_pet(user_id):
