@@ -160,6 +160,15 @@ async def handle_um_callback(bot, callback, data: str, admin_id: int):
             await log_action(admin_id, "unban", str(tid), {"ok": bool(ok)})
         except Exception:
             pass
+        if ok:
+            try:
+                from database.admin_system import record_admin_activity
+                await record_admin_activity(
+                    admin_id, "user_unban", target=str(tid),
+                    unique_key=f"unban:{tid}:{int(__import__('time').time())}",
+                )
+            except Exception as e:
+                print(f"activity unban: {e}")
         try:
             await bot.send_message(
                 tid,
@@ -286,12 +295,21 @@ async def handle_um_text(bot, message, admin_id: int, text: str) -> bool:
             try:
                 await bot.send_message(tid, body)
                 await log_action(admin_id, "admin_msg", str(tid))
+                try:
+                    from database.admin_system import record_admin_activity
+                    await record_admin_activity(
+                        admin_id, "admin_msg", target=str(tid),
+                        unique_key=f"admin_msg:{tid}:{int(__import__('time').time())}",
+                    )
+                except Exception:
+                    pass
                 await message.reply(f"✅ پیام به `{tid}` ارسال شد.")
             except Exception as e:
                 await message.reply(f"❌ ارسال نشد: `{e}`")
             _pending.pop(admin_id, None)
             return True
 
+        
         if action == "ban_reason":
             p["reason"] = text
             p["action"] = "ban_desc"
@@ -316,6 +334,14 @@ async def handle_um_text(bot, message, admin_id: int, text: str) -> bool:
                 "days": days,
                 "permanent": permanent,
             })
+            try:
+                from database.admin_system import record_admin_activity
+                await record_admin_activity(
+                    admin_id, "user_ban", target=str(tid),
+                    unique_key=f"ban:{tid}:{ban.get('tracking_code')}",
+                )
+            except Exception as e:
+                print(f"activity ban: {e}")
             u = await get_user(tid)
             name = (u or {}).get("first_name") or str(tid)
             msg = await ban_message_text(ban, name)
