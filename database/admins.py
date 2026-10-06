@@ -22,7 +22,11 @@ def _d(row):
 
 
 ALL_PERMISSIONS = [
-    "users.view", "users.edit", "users.ban",
+    "users.view", "users.edit", "users.ban", "users.unban",
+    "reports.view", "reports.manage",
+    "tickets.view", "tickets.manage",
+    "broadcast.view", "broadcast.send",
+    "admin_activity.view", "leaderboard.view", "tasks.view", "tasks.manage",
     "groups.view", "groups.edit",
     "economy.view", "economy.edit",
     "pets.view", "pets.edit",
@@ -109,7 +113,11 @@ async def has_permission(user_id: int, perm: str) -> bool:
 async def add_admin(user_id: int, role: str = "ADMIN", permissions=None, added_by=None, note=""):
     if permissions is None:
         permissions = [
-            "users.view", "users.edit", "users.ban",
+            "users.view", "users.edit", "users.ban", "users.unban",
+    "reports.view", "reports.manage",
+    "tickets.view", "tickets.manage",
+    "broadcast.view", "broadcast.send",
+    "admin_activity.view", "leaderboard.view", "tasks.view", "tasks.manage",
             "groups.view", "economy.view", "logs.view",
             "tickets.manage", "broadcast.send",
         ]
