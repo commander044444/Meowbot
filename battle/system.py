@@ -129,7 +129,13 @@ async def resolve_fight(user_a: int, name_a: str, user_b: int, name_b: str):
         total_battles=int(wu.get("total_battles") or 0) + 1,
         last_battle=now,
     )
-    await add_meow_coins(winner_id, BATTLE_WIN_REWARD)
+    win_amt = BATTLE_WIN_REWARD
+    try:
+        from database.events import apply_coin_bonus
+        win_amt, _, _ = await apply_coin_bonus(BATTLE_WIN_REWARD)
+    except Exception:
+        pass
+    await add_meow_coins(winner_id, win_amt)
     # loser
     lu = await get_user(loser_id) or {}
     await update_user(
@@ -138,7 +144,13 @@ async def resolve_fight(user_a: int, name_a: str, user_b: int, name_b: str):
         total_battles=int(lu.get("total_battles") or 0) + 1,
         last_battle=now,
     )
-    await add_meow_coins(loser_id, BATTLE_LOSE_REWARD)
+    lose_amt = BATTLE_LOSE_REWARD
+    try:
+        from database.events import apply_coin_bonus
+        lose_amt, _, _ = await apply_coin_bonus(BATTLE_LOSE_REWARD)
+    except Exception:
+        pass
+    await add_meow_coins(loser_id, lose_amt)
 
     return (
         f"⚔️ **نتیجه نبرد**\n"
