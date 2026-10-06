@@ -148,36 +148,53 @@ async def format_log_line(row: dict) -> str:
 
 async def build_admin_logs_text(actor_id: int = None, page: int = 0, per_page: int = 12):
     """
-    لاگ ترکیبی از audit_logs (+ در صورت نیاز admin_activity).
-    actor_id=None → همه ادمین‌ها
+    فقط لاگ ادمین‌ها (بدون Owner).
+    صفحه ۰ = جدیدترین فعالیت‌ها.
     """
+    from config import OWNER_ID
+    owner_id = int(OWNER_ID)
+    page = max(0, int(page or 0))
     offset = page * per_page
     limit = per_page
 
     if actor_id:
+        # اگر اشتباهاً Owner انتخاب شد، خالی برگردان
+        if int(actor_id) == owner_id:
+            return (
+                "📜 لاگ Owner اینجا نمایش داده نمی‌شود.\nفقط فعالیت ادمین‌ها.",
+                _kb([[("🔙 لیست ادمین", "ap:list")]]),
+            )
         rows = await fetch(
             """
             SELECT id, actor_id, action, target, details, result, created_at
             FROM audit_logs
             WHERE actor_id = $1
-            ORDER BY created_at DESC
+              AND actor_id <> $4
+            ORDER BY created_at DESC NULLS LAST, id DESC
             LIMIT $2 OFFSET $3
             """,
-            int(actor_id), limit, offset,
+            int(actor_id), limit, offset, owner_id,
         )
         title_name = await _name(actor_id)
-        title = f"📜 **لاگ ادمین: {title_name}**"
+        title = f"📜 **لاگ ادمین: {title_name}**\n_جدیدترین‌ها اول_"
     else:
+        # همه ادمین‌ها به‌جز Owner + فقط کسانی که در جدول admins هستند یا بوده‌اند
         rows = await fetch(
             """
             SELECT id, actor_id, action, target, details, result, created_at
             FROM audit_logs
-            ORDER BY created_at DESC
+            WHERE actor_id IS NOT NULL
+              AND actor_id <> $3
+              AND (
+                    actor_id IN (SELECT user_id FROM admins)
+                 OR actor_id IN (SELECT user_id FROM admin_profiles)
+              )
+            ORDER BY created_at DESC NULLS LAST, id DESC
             LIMIT $1 OFFSET $2
             """,
-            limit, offset,
+            limit, offset, owner_id,
         )
-        title = "📜 **لاگ فعالیت همه ادمین‌ها**"
+        title = "📜 **لاگ فعالیت ادمین‌ها**\n_Owner در این لیست نیست · جدیدترین‌ها اول_"
 
     lines = [
         title,
