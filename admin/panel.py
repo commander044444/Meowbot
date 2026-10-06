@@ -958,8 +958,37 @@ async def handle_owner_text(bot, message, user_id: int, text: str) -> bool:
                 "users.view", "groups.view", "economy.view", "logs.view",
             ]
             await add_admin(tid, role=role, permissions=perms, added_by=user_id)
+            # اگر قبلاً حذف شده بود، پروفایل را active کن
+            try:
+                from database.admin_system import (
+                    ensure_admin_profile, assign_role_manual, log_role_change,
+                )
+                from database.pool import execute as _ex
+                await ensure_admin_profile(tid)
+                await _ex(
+                    """
+                    UPDATE admin_profiles SET
+                        status = 'active',
+                        removed_at = NULL,
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    int(tid),
+                )
+                prog_role = {
+                    "MODERATOR": "moderator",
+                    "ADMIN": "admin",
+                    "SUPER_ADMIN": "super_admin",
+                }.get(role, "moderator")
+                await assign_role_manual(tid, prog_role, user_id, "re-added by owner", True)
+            except Exception as e:
+                print(f"admin_add reactivate: {e}")
             await log_action(user_id, "admin_add", str(tid), {"role": role})
-            await message.reply(f"✅ Admin `{tid}` با نقش **{role}** اضافه شد.", components=admins_kb())
+            await message.reply(
+                f"✅ Admin `{tid}` با نقش **{role}** اضافه/بازگردانی شد.\n"
+                f"اکنون می‌تواند `/admin` را باز کند.",
+                components=admins_kb(),
+            )
             _pending.pop(user_id, None)
             return True
 
