@@ -183,13 +183,19 @@ async def handle_admin_callback(bot, callback, data: str, user_id: int):
         if not (await _can(user_id, "tickets.manage") or await _can(user_id, "tickets.view")):
             return "⛔ این بخش برای شما فعال نیست.", await _back_only()
         from admin.tickets_panel import tickets_home
-        return await tickets_home(back_cb="adm:home")
+        try:
+            return await tickets_home(back_cb="adm:home")
+        except TypeError:
+            return await tickets_home()
 
     if cmd == "users":
         if not await _can(user_id, "users.view"):
             return "⛔ این بخش برای شما فعال نیست.", await _back_only()
         from admin.users_mgmt import users_list_page
-        return await users_list_page(0, back_cb="adm:home")
+        try:
+            return await users_list_page(0, back_cb="adm:home")
+        except TypeError:
+            return await users_list_page(0)
 
     if cmd == "reports":
         if not (await _can(user_id, "reports.view") or await _can(user_id, "reports.manage")):
