@@ -784,7 +784,7 @@ async def on_callback(callback: CallbackQuery):
                 except Exception:
                     pass
                 return
-            text, kb = await handle_ap_callback(data, user_id)
+            text, kb = await handle_ap_callback(data, user_id, bot=bot)
             await _edit_or_reply(msg, text, kb)
             return
 
