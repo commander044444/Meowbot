@@ -319,7 +319,7 @@ async def action_feed(user_id):
     )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(FEED_MESSAGES).format(name=name)
-    msg += f"\n🥣 از: {item.get('item_id')}\n🔋 باقی استفاده غذا: `{left}`"
+    msg += f"\n🥣 از: **{item.get('name') or item.get('item_id')}**\n🔋 باقی‌مانده این بسته: `{left}`"
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
@@ -351,6 +351,9 @@ async def action_play(user_id, kind="ball"):
         return "❌ اسباب‌بازی تموم شده. از فروشگاه بخر.", pet_home_kb(True)
 
     effect = _as_dict(meta)
+    # اگر آیتم نوع بازی مشخص کرده، همان را برای پیام استفاده کن
+    if effect.get("play_kind"):
+        kind = str(effect.get("play_kind"))
     energy_add = int(effect.get("energy") or 15)
     xp_add = int(effect.get("xp") or PET_XP_PLAY)
     rel_add = int(effect.get("relationship") or 3)
@@ -379,7 +382,7 @@ async def action_play(user_id, kind="ball"):
         msg = random.choice(list(msgs)).format(name=name)
     except Exception:
         msg = f"🐱 {name} بازی کرد! 🎾"
-    msg += f"\n🎾 با: `{item_id}`\n🔋 باقی استفاده اسباب‌بازی: `{left}`"
+    msg += f"\n🎾 با: **{item.get('name') or item_id}**\n🔋 باقی‌مانده این وسیله: `{left}`"
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
@@ -455,7 +458,7 @@ async def action_sleep(user_id):
 
     effect = _as_dict(meta)
     energy_bonus = int(effect.get("energy") or PET_SLEEP_ENERGY)
-    duration = PET_SLEEP_DURATION
+    duration = PET_SLEEP_DURATION + int((_as_dict(meta)).get("sleep_bonus_sec") or 0)
 
     await update_pet(
         user_id,
@@ -465,7 +468,7 @@ async def action_sleep(user_id):
     )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(SLEEP_MESSAGES).format(name=name)
-    msg += f"\n🛏 با: {item.get('item_id')}\n🔋 باقی استفاده جای خواب: `{left}`\n⏱ حدود {duration} ثانیه"
+    msg += f"\n🛏 با: **{item.get('name') or item.get('item_id')}**\n🔋 باقی‌مانده این جای خواب: `{left}`\n⏱ حدود {duration} ثانیه"
     return msg, pet_home_kb(True)
 
 
