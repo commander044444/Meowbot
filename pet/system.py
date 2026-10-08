@@ -262,6 +262,13 @@ async def try_call_pet(user_id, text: str):
 
 
 
+def _item_label(item, meta=None):
+    meta = meta if isinstance(meta, dict) else {}
+    if not isinstance(item, dict):
+        item = {}
+    return meta.get("display_name") or item.get("name") or item.get("item_id") or "آیتم"
+
+
 async def _need_item(user_id, item_type: str, title: str):
     """اگر آیتم ندارد پیام خرید برگردان."""
     from database.inventory import find_usable_item
@@ -319,7 +326,7 @@ async def action_feed(user_id):
     )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(FEED_MESSAGES).format(name=name)
-    msg += f"\n🥣 از: **{item.get('name') or item.get('item_id')}**\n🔋 باقی‌مانده این بسته: `{left}`"
+    msg += f"\n🥣 از: **{_item_label(item, effect)}**\n🔋 باقی‌مانده این بسته: `{left}`"
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
@@ -382,7 +389,7 @@ async def action_play(user_id, kind="ball"):
         msg = random.choice(list(msgs)).format(name=name)
     except Exception:
         msg = f"🐱 {name} بازی کرد! 🎾"
-    msg += f"\n🎾 با: **{item.get('name') or item_id}**\n🔋 باقی‌مانده این وسیله: `{left}`"
+    msg += f"\n🎾 با: **{_item_label(item, effect)}**\n🔋 باقی‌مانده این وسیله: `{left}`"
     if leveled:
         msg += f"\n🎉 Level Up → **{level}**!"
     pet = await get_pet(user_id)
@@ -468,7 +475,7 @@ async def action_sleep(user_id):
     )
     name = pet.get("pet_name") or "Pet"
     msg = random.choice(SLEEP_MESSAGES).format(name=name)
-    msg += f"\n🛏 با: **{item.get('name') or item.get('item_id')}**\n🔋 باقی‌مانده این جای خواب: `{left}`\n⏱ حدود {duration} ثانیه"
+    msg += f"\n🛏 با: **{_item_label(item, effect)}**\n🔋 باقی‌مانده این جای خواب: `{left}`\n⏱ حدود {duration} ثانیه"
     return msg, pet_home_kb(True)
 
 
