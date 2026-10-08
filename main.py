@@ -586,10 +586,8 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
             desc = (it.get("description") or "").strip()
             tname = type_fa.get(it.get("item_type"), it.get("item_type"))
             lines.append(
-                f"• **{it.get('name')}**
-"
-                f"  {desc}
-"
+                f"• **{it.get('name')}**\n"
+                f"  {desc}\n"
                 f"  🪙 `{it.get('price')}` · 🔋 `{uses}` استفاده · {tname}"
             )
             lines.append("")
