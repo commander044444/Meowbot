@@ -561,11 +561,17 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
         items = await get_shop_items()
         if not items:
             return "🛒 فروشگاه خالی است.", back_main_kb()
+        type_fa = {
+            "food": "غذا",
+            "toy": "اسباب‌بازی",
+            "bed": "جای خواب",
+            "gift": "هدیه",
+        }
         lines = [
             "🛒 **فروشگاه Pet**",
             "━━━━━━━━━━━━━━",
             "برای غذا / بازی / خواب باید از اینجا بخری.",
-            "هر آیتم معمولاً **۲۰ بار** قابل استفاده است.",
+            "هر آیتم **دوام و اثر خودش** را دارد.",
             "",
         ]
         for it in items:
@@ -576,12 +582,18 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
                     eff = _json.loads(eff)
                 except Exception:
                     eff = {}
-            uses = eff.get("max_uses") or 20
+            uses = int(eff.get("max_uses") or 1)
+            desc = (it.get("description") or "").strip()
+            tname = type_fa.get(it.get("item_type"), it.get("item_type"))
             lines.append(
-                f"• {it.get('name')} — `{it.get('price')}`🪙 "
-                f"| {uses}× | {it.get('item_type')}"
+                f"• **{it.get('name')}**
+"
+                f"  {desc}
+"
+                f"  🪙 `{it.get('price')}` · 🔋 `{uses}` استفاده · {tname}"
             )
-        return "\n".join(lines), shop_kb(items)
+            lines.append("")
+        return "\n".join(lines).rstrip(), shop_kb(items)
 
     if data.startswith("shop:buy:"):
         item_id = data.split(":", 2)[-1]
@@ -602,9 +614,12 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
             except Exception:
                 effect = {}
         effect = dict(effect)
-        max_uses = int(effect.get("max_uses") or 20)
+        max_uses = int(effect.get("max_uses") or 1)
+        if max_uses < 1:
+            max_uses = 1
         effect["max_uses"] = max_uses
         effect["uses_left"] = max_uses
+        effect["display_name"] = item.get("name") or item_id
         await add_item(
             user_id,
             item_id,
@@ -614,14 +629,15 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
         )
         return (
             f"✅ **{item.get('name')}** خریدی!\n"
+            f"📝 {item.get('description') or ''}\n"
             f"🪙 -{price}\n"
-            f"🔋 تعداد استفاده: `{max_uses}`\n"
+            f"🔋 تعداد استفاده این بسته: `{max_uses}`\n"
             f"📦 برو Pet و استفاده کن!",
             shop_kb(items),
         )
 
     if data == "shop:inv":
-        from database.inventory import get_inventory
+        from database.inventory import get_inventory, get_shop_item
         import json as _json
         inv = await get_inventory(user_id)
         if not inv:
@@ -634,15 +650,19 @@ async def _dispatch(user_id, data: str, first_name="", username="", chat_id=None
                     meta = _json.loads(meta)
                 except Exception:
                     meta = {}
+            name = meta.get("display_name")
+            if not name:
+                shop_it = await get_shop_item(it.get("item_id") or "")
+                name = (shop_it or {}).get("name") or it.get("item_id")
             uses = meta.get("uses_left")
             max_u = meta.get("max_uses")
             if uses is not None:
                 lines.append(
-                    f"• `{it.get('item_id')}` ({it.get('item_type')}) "
-                    f"— 🔋 {uses}/{max_u or uses}"
+                    f"• **{name}**\n"
+                    f"  🔋 باقی‌مانده: `{uses}` / `{max_u or uses}`"
                 )
             else:
-                lines.append(f"• `{it.get('item_id')}` ×{it.get('quantity')}")
+                lines.append(f"• **{name}** ×{it.get('quantity')}")
         return "\n".join(lines), back_main_kb()
 
     return WELCOME, main_menu_kb()
