@@ -683,38 +683,31 @@ async def handle_owner_callback(bot, callback, data: str):
         if action == "backup":
             await _edit(
                 msg,
-                "💾 **BACKUP CENTER**\n"
+                "💾 **مرکز بکاپ**\n"
                 "━━━━━━━━━━━━━━\n"
-                "روی Railway بهترین روش:\n"
-                "`pg_dump $DATABASE_URL`\n\n"
-                "از دکمه‌ها برای ثبت متادیتا در دیتابیس استفاده کن.",
+                "با زدن دکمه زیر، بکاپ واقعی از دیتابیس ساخته می‌شود "
+                "(JSON فشرده) و **فایل به پیوی تو** ارسال می‌شود.\n\n"
+                "چند ثانیه صبر کن تا فایل برسد.",
                 backup_kb(),
             )
             return
 
         if action == "backup_create":
             try:
-                n_users = await count_users()
-                n_groups = await count_groups()
-                fname = f"MeowBot_Backup_{datetime.now(TEHRAN).strftime('%Y-%m-%d_%H-%M-%S')}.meta"
-                await execute(
-                    """
-                    INSERT INTO backups (filename, size_bytes, created_by, status, note)
-                    VALUES ($1, $2, $3, 'ok', $4)
-                    """,
-                    fname, 0, user_id,
-                    f"users={n_users} groups={n_groups}",
-                )
-                await log_action(user_id, "backup_create", fname, {"users": n_users})
                 await _edit(
                     msg,
-                    f"✅ Backup meta ثبت شد:\n`{fname}`\n"
-                    f"Users: `{n_users}` | Groups: `{n_groups}`\n\n"
-                    f"برای فایل واقعی SQL از pg_dump روی Railway استفاده کن.",
+                    "⏳ در حال ساخت بکاپ واقعی و ارسال به پیوی...\nلطفاً صبر کن.",
                     backup_kb(),
                 )
+                from database.backup import send_backup_to_pv
+                ok, info = await send_backup_to_pv(bot, int(user_id))
+                try:
+                    await log_action(user_id, "backup_create", "pv_send", {"ok": bool(ok)})
+                except Exception:
+                    pass
+                await _edit(msg, info, backup_kb())
             except Exception as e:
-                await _edit(msg, f"❌ `{e}`", backup_kb())
+                await _edit(msg, f"❌ خطا در بکاپ:\n`{e}`", backup_kb())
             return
 
         if action == "backup_list":
