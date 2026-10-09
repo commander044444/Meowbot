@@ -124,8 +124,8 @@ def broadcast_kb():
 
 def backup_kb():
     return _kb([
-        [("🆕 ساخت Backup Meta", "owner:backup_create")],
-        [("📋 تاریخچه Backup", "owner:backup_list")],
+        [("💾 ساخت بکاپ و ارسال به پیوی", "owner:backup_create")],
+        [("📋 تاریخچه بکاپ", "owner:backup_list")],
         [("🔙 منوی Owner", "owner:home")],
     ])
 
